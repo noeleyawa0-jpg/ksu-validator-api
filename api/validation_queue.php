@@ -20,7 +20,13 @@ if ($session['role'] === 'chairperson') {
 
 $pdo = db();
 $reqStmt = $pdo->prepare('
-    SELECT er.* FROM enrollment_requests er
+    SELECT er.*,
+           u.first_name AS student_first_name,
+           u.last_name AS student_last_name,
+           u.program AS student_program,
+           u.year_level AS student_year_level,
+           u.year_section AS student_year_section
+    FROM enrollment_requests er
     JOIN users u ON u.id = er.student_id
     WHERE u.program = ?
     ORDER BY er.submitted_at DESC
@@ -73,6 +79,11 @@ foreach ($requests as $r) {
     $out[] = [
         'id' => $r['id'],
         'studentId' => $r['student_id'],
+        'studentFirstName' => $r['student_first_name'],
+        'studentLastName' => $r['student_last_name'],
+        'studentProgram' => $r['student_program'],
+        'studentYearLevel' => $r['student_year_level'] !== null ? (int)$r['student_year_level'] : null,
+        'studentYearSection' => $r['student_year_section'],
         'schoolYear' => $r['school_year'],
         'term' => $r['term'],
         'type' => $r['type'],
