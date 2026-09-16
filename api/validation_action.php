@@ -11,6 +11,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $session = current_session();
 if (!$session || $session['role'] !== 'chairperson') error_response('Unauthorized', 401);
 
+$chairProgram = $session['program'] ?? '';
+if ($chairProgram === '') {
+    error_response('This chairperson account has no program assigned.', 403);
+}
+
 $body = json_body();
 $requestId = $body['requestId'] ?? '';
 $subCode = $body['subCode'] ?? '';
@@ -20,6 +25,20 @@ $override = !empty($body['override']);
 
 if ($requestId === '' || $subCode === '' || !in_array($status, ['validated', 'rejected'], true)) {
     error_response('requestId, subCode, and a valid status are required.');
+}
+
+// Defense in depth: confirm this request actually belongs to a student in
+// THIS chair's program before allowing any action on it, even though the
+// UI only ever shows a chair their own queue in the first place.
+$check = db()->prepare('
+    SELECT u.program FROM enrollment_requests er
+    JOIN users u ON u.id = er.student_id
+    WHERE er.id = ? LIMIT 1
+');
+$check->execute([$requestId]);
+$row = $check->fetch();
+if (!$row || $row['program'] !== $chairProgram) {
+    error_response('This request does not belong to your program.', 403);
 }
 
 $stmt = db()->prepare(

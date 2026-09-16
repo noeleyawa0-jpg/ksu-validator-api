@@ -2,13 +2,20 @@
 // api/token.php
 // A minimal signed-token helper — dependency-free stand-in for JWT so this
 // project runs straight out of htdocs with zero Composer setup.
+//
+// UPDATED: tokens now also carry the account's `program` (for chairperson
+// accounts). This is what lets students_list.php / validation_queue.php /
+// validation_action.php scope a chairperson to ONLY their own program —
+// the value is baked into the signed token at login time, so a chair can
+// never spoof a different program by editing a request.
 
 require_once __DIR__ . '/config.php';
 
-function issue_token(string $userId, string $role): string {
+function issue_token(string $userId, string $role, ?string $program = null): string {
     $payload = [
         'sub' => $userId,
         'role' => $role,
+        'program' => $program,
         'exp' => time() + (60 * 60 * 12), // 12-hour session
     ];
     $payloadJson = base64_encode(json_encode($payload));

@@ -26,7 +26,9 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
     error_response('Invalid credentials.', 401);
 }
 
-$token = issue_token($user['id'], $user['role']);
+// program is baked into the signed token so a chairperson can never be
+// tricked/spoofed into seeing another program's data.
+$token = issue_token($user['id'], $user['role'], $user['program']);
 
 respond([
     'id' => $user['id'],

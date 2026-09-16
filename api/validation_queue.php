@@ -1,5 +1,8 @@
 <?php
-// api/validation_queue.php  ->  GET /api/validation_queue.php?department=CEIT
+// api/validation_queue.php  ->  GET /api/validation_queue.php[?program=BSIT]
+//
+// Chairperson: always scoped to THEIR OWN program from the signed token.
+// Admin: can pass ?program=XXX to inspect any program's queue.
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
@@ -9,18 +12,27 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 }
 
 $session = current_session();
-if (!$session || $session['role'] !== 'chairperson') error_response('Unauthorized', 401);
+if (!$session) error_response('Unauthorized', 401);
 
-$department = $_GET['department'] ?? '';
-if ($department === '') error_response('Missing department parameter.');
+if ($session['role'] === 'chairperson') {
+    $program = $session['program'] ?? '';
+    if ($program === '') {
+        error_response('This chairperson account has no program assigned. Ask the System Administrator to set one.', 403);
+    }
+} elseif ($session['role'] === 'admin') {
+    $program = $_GET['program'] ?? '';
+    if ($program === '') error_response('Missing program parameter.');
+} else {
+    error_response('Unauthorized', 401);
+}
 
 $reqStmt = db()->prepare('
     SELECT er.* FROM enrollment_requests er
     JOIN users u ON u.id = er.student_id
-    WHERE u.department = ?
+    WHERE u.program = ?
     ORDER BY er.submitted_at DESC
 ');
-$reqStmt->execute([$department]);
+$reqStmt->execute([$program]);
 $requests = $reqStmt->fetchAll();
 
 $subStmt = db()->prepare('
