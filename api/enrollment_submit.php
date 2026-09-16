@@ -1,71 +1,46 @@
 <?php
-// api/enrollment_submit.php  ->  POST /api/enrollment_submit.php
-
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    error_response('Method not allowed', 405);
-}
-
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') error_response('Method not allowed', 405);
 $session = current_session();
 if (!$session) error_response('Unauthorized', 401);
-
 $body = json_body();
-$requestId = $body['id'] ?? ('REQ-' . time() . random_int(100, 999));
-$studentId = trim($body['studentId'] ?? '');
-$schoolYear = trim($body['schoolYear'] ?? '');
-$term = trim($body['term'] ?? '');
+$requestId = $body['id'] ?? ('REQ-' . time());
+$studentId = $body['studentId'] ?? '';
+$schoolYear = $body['schoolYear'] ?? '';
+$term = $body['term'] ?? '';
 $type = $body['type'] ?? 'regular';
 $subjects = $body['subjects'] ?? [];
-
-$tokenStudentId = $session['sub'] ?? '';
-if ($tokenStudentId === '' || $studentId !== $tokenStudentId) {
-    error_response('Student account mismatch.', 403);
-}
-
-if ($studentId === '' || $schoolYear === '' || $term === '' || empty($subjects)) {
-    error_response('studentId, schoolYear, term, and at least one subject are required.');
-}
-
+if ($studentId === '' || empty($subjects)) error_response('studentId and at least one subject are required.');
 $pdo = db();
+$studentStmt = $pdo->prepare("SELECT program FROM users WHERE id=? AND role='student' LIMIT 1");
+$studentStmt->execute([$studentId]);
+$student = $studentStmt->fetch();
+if (!$student) error_response('Student not found.', 404);
+$program = $student['program'];
 $pdo->beginTransaction();
 try {
-    // Reject a second submission for the same student, school year and term.
-    $existingStmt = $pdo->prepare(
-        'SELECT id FROM enrollment_requests
-         WHERE student_id = ? AND school_year = ? AND term = ?
-         ORDER BY submitted_at ASC LIMIT 1'
-    );
-    $existingStmt->execute([$studentId, $schoolYear, $term]);
-
-    if ($existingStmt->fetch()) {
-        $pdo->rollBack();
-        error_response(
-            'You already submitted a pre-enrollment request for this term. '
-            . 'Please use Tracking to view its status.',
-            409
-        );
-    }
-    $reqStmt = $pdo->prepare(
-        'INSERT INTO enrollment_requests (id, student_id, school_year, term, type) VALUES (?, ?, ?, ?, ?)'
-    );
-    $reqStmt->execute([$requestId, $studentId, $schoolYear, $term, $type]);
-
-    $subStmt = $pdo->prepare(
-        'INSERT INTO request_subjects (request_id, sub_code, local_check, status) VALUES (?, ?, ?, "pending")'
-    );
+    $pdo->prepare('INSERT INTO enrollment_requests (id, student_id, school_year, term, type) VALUES (?, ?, ?, ?, ?)')->execute([$requestId,$studentId,$schoolYear,$term,$type]);
+    $byCode = $pdo->prepare('SELECT subject_id FROM subjects WHERE program_code=? AND sub_code=? ORDER BY year_level, semester, subject_id');
+    $ins = $pdo->prepare('INSERT INTO request_subjects (request_id, subject_id, sub_code, local_check, status) VALUES (?, ?, ?, ?, "pending")');
     foreach ($subjects as $s) {
-        $subStmt->execute([$requestId, $s['subCode'], $s['localCheck'] ?? 'eligible']);
+        $code = trim((string)($s['subCode'] ?? ''));
+        $subjectId = isset($s['subjectId']) ? (int)$s['subjectId'] : 0;
+        if ($subjectId <= 0) {
+            $byCode->execute([$program,$code]);
+            $matches = $byCode->fetchAll();
+            if (count($matches) !== 1) error_response("Subject '$code' is ambiguous or unavailable for $program.");
+            $subjectId = (int)$matches[0]['subject_id'];
+        }
+        $verify = $pdo->prepare('SELECT sub_code FROM subjects WHERE subject_id=? AND program_code=? LIMIT 1');
+        $verify->execute([$subjectId,$program]);
+        $row = $verify->fetch();
+        if (!$row) error_response("Subject '$code' is not part of $program.");
+        $ins->execute([$requestId,$subjectId,$row['sub_code'],$s['localCheck'] ?? 'eligible']);
     }
-
     $pdo->commit();
-} catch (Exception $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-    error_log('Enrollment submission failed: ' . $e->getMessage());
-    error_response('Failed to save submission.', 500);
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_response('Failed to save submission: ' . $e->getMessage(), 500);
 }
-
-respond(['status' => 'ok', 'requestId' => $requestId], 201);
+respond(['status'=>'ok','requestId'=>$requestId],201);
