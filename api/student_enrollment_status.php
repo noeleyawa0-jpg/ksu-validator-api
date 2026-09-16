@@ -1,7 +1,4 @@
 <?php
-// api/student_enrollment_status.php
-// GET /api/student_enrollment_status.php?schoolYear=26-1&term=First%20Semester
-
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
 
@@ -42,7 +39,6 @@ $subStmt = db()->prepare('
     FROM request_subjects rs
     JOIN subjects s ON s.sub_code = rs.sub_code
     WHERE rs.request_id = ?
-    ORDER BY s.year_level, s.semester, s.sub_code
 ');
 $subStmt->execute([$request['id']]);
 
