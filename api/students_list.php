@@ -29,7 +29,7 @@ if ($session['role'] === 'chairperson') {
 }
 
 $stmt = db()->prepare("
-    SELECT id, first_name, last_name, program, year_level, year_section, enrollment_type
+    SELECT id, first_name, last_name, email, program, year_level, year_section, enrollment_type
     FROM users
     WHERE role = 'student' AND program = ? AND year_level BETWEEN 1 AND 4
     ORDER BY year_level ASC, last_name ASC
@@ -42,6 +42,7 @@ respond(array_map(function ($s) {
         'studentId' => $s['id'],
         'firstName' => $s['first_name'],
         'lastName' => $s['last_name'],
+        'email' => $s['email'],
         'program' => $s['program'],
         'yearLevel' => (int) $s['year_level'],
         'yearSection' => $s['year_section'],
