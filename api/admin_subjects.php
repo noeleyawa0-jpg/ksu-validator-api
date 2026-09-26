@@ -94,7 +94,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $pdo->prepare('INSERT INTO subjects
                 (curriculum_subject_id, term_code, sub_code, program_code, sched_code, description, units,
                  schedule, section, instructor, is_exclusive, year_level, semester)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $curriculumSubjectId, $termCode, $subCode, $programCode, $body['schedCode'], $body['description'], $body['units'],
                 $body['schedule'], $body['section'], $body['instructor'], !empty($body['exclusive']) ? 1 : 0,
