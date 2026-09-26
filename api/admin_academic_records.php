@@ -84,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             'studentId' => $r['student_id'],
             'subCode' => $r['sub_code'],
             'schoolYearTaken' => $r['school_year_taken'],
+            'termCode' => $r['term_code'] ?? null,
             'grade' => $r['grade'],
             'passed' => (bool)$r['passed'],
             'status' => $status,
@@ -105,6 +106,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $studentId = trim($body['studentId'] ?? '');
     $subCode = trim($body['subCode'] ?? '');
     $schoolYearTaken = trim($body['schoolYearTaken'] ?? '');
+    $termCode = trim((string)($body['termCode'] ?? ''));
+    if ($termCode === '') {
+        $termStmt = $pdo->query('SELECT term_code FROM academic_terms WHERE is_current = 1 ORDER BY term_code DESC LIMIT 1');
+        $current = $termStmt->fetch();
+        $termCode = $current['term_code'] ?? '';
+    }
     $grade = normalize_grade((string)($body['grade'] ?? ''));
 
     if ($studentId === '' || $subCode === '' || $schoolYearTaken === '' || $grade === '') {
@@ -136,17 +143,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $passed = passed_from_grade($grade) ? 1 : 0;
 
-    $existingStmt = $pdo->prepare('SELECT id FROM academic_records WHERE student_id = ? AND sub_code = ? AND school_year_taken = ? ORDER BY id DESC LIMIT 1');
-    $existingStmt->execute([$studentId, $subCode, $schoolYearTaken]);
+    $existingStmt = $pdo->prepare('SELECT id FROM academic_records WHERE student_id = ? AND sub_code = ? AND school_year_taken = ? AND COALESCE(term_code, ) = ? ORDER BY id DESC LIMIT 1');
+    $existingStmt->execute([$studentId, $subCode, $schoolYearTaken, $termCode]);
     $existing = $existingStmt->fetch();
 
     if ($existing) {
-        $stmt = $pdo->prepare('UPDATE academic_records SET grade = ?, passed = ? WHERE id = ?');
-        $stmt->execute([$grade, $passed, $existing['id']]);
+        $stmt = $pdo->prepare('UPDATE academic_records SET grade = ?, passed = ?, term_code = ? WHERE id = ?');
+        $stmt->execute([$grade, $passed, $termCode !== '' ? $termCode : null, $existing['id']]);
         $recordId = (int)$existing['id'];
     } else {
-        $stmt = $pdo->prepare('INSERT INTO academic_records (student_id, sub_code, school_year_taken, grade, passed) VALUES (?, ?, ?, ?, ?)');
-        $stmt->execute([$studentId, $subCode, $schoolYearTaken, $grade, $passed]);
+        $stmt = $pdo->prepare('INSERT INTO academic_records (student_id, sub_code, school_year_taken, term_code, grade, passed) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute([$studentId, $subCode, $schoolYearTaken, $termCode !== '' ? $termCode : null, $grade, $passed]);
         $recordId = (int)$pdo->lastInsertId();
     }
 

@@ -139,6 +139,8 @@ foreach ($requests as $r) {
         'studentYearSection' => $r['student_year_section'],
         'schoolYear' => $r['school_year'],
         'term' => $r['term'],
+        'termCode' => $r['term_code'] ?? null,
+        'selectedSection' => $r['selected_section'] ?? null,
         'type' => $r['type'],
         'submittedAt' => $r['submitted_at'],
         'selections' => $selections,

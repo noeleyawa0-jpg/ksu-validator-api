@@ -11,16 +11,17 @@ if (!$session || ($session['role'] ?? '') !== 'student') error_response('Unautho
 $studentId = $session['sub'] ?? '';
 $schoolYear = trim($_GET['schoolYear'] ?? '');
 $term = trim($_GET['term'] ?? '');
-if ($studentId === '' || $schoolYear === '' || $term === '') error_response('schoolYear and term are required.');
+$termCode = trim($_GET['termCode'] ?? '');
+if ($studentId === '' || $schoolYear === '' || $term === '' || $termCode === '') error_response('schoolYear, term, and termCode are required.');
 
 $pdo = db();
 $reqStmt = $pdo->prepare('
-    SELECT id, student_id, school_year, term, type, submitted_at
+    SELECT id, student_id, school_year, term, term_code, selected_section, type, submitted_at
     FROM enrollment_requests
-    WHERE student_id = ? AND school_year = ? AND term = ?
+    WHERE student_id = ? AND term_code = ?
     ORDER BY submitted_at ASC LIMIT 1
 ');
-$reqStmt->execute([$studentId, $schoolYear, $term]);
+$reqStmt->execute([$studentId, $termCode]);
 $request = $reqStmt->fetch();
 if (!$request) respond(null);
 
@@ -69,6 +70,8 @@ respond([
     'studentId' => $request['student_id'],
     'schoolYear' => $request['school_year'],
     'term' => $request['term'],
+    'termCode' => $request['term_code'],
+    'selectedSection' => $request['selected_section'],
     'type' => $request['type'],
     'submittedAt' => $request['submitted_at'],
     'selections' => $selections,

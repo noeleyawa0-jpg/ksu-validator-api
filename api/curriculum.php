@@ -10,7 +10,10 @@ $session = current_session();
 if (!$session) error_response('Unauthorized', 401);
 
 $programCode = trim($_GET['program'] ?? '');
+$section = trim($_GET['section'] ?? '');
+$semesterFilter = isset($_GET['semester']) ? (int)$_GET['semester'] : 0;
 if ($programCode === '') error_response('Missing program parameter.');
+if ($semesterFilter !== 0 && !in_array($semesterFilter, [1,2,3], true)) error_response('Invalid semester.');
 
 $pdo = db();
 $curStmt = $pdo->prepare('SELECT * FROM curricula WHERE program_code = ? LIMIT 1');
