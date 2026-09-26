@@ -11,6 +11,14 @@ if (!$session) error_response('Unauthorized', 401);
 
 $programCode = trim($_GET['program'] ?? '');
 $section = trim($_GET['section'] ?? '');
+
+// Chairpersons are permanently scoped to the program encoded in their
+// signed session token. They must never be able to request another
+// program's curriculum by changing the query-string parameter.
+if (($session['role'] ?? '') === 'chairperson') {
+    $programCode = trim($session['program'] ?? '');
+    if ($programCode === '') error_response('Chairperson program is not configured.', 403);
+}
 $semesterFilter = isset($_GET['semester']) ? (int)$_GET['semester'] : 0;
 $yearLevelFilter = isset($_GET['yearLevel']) ? (int)$_GET['yearLevel'] : 0;
 if ($programCode === '') error_response('Missing program parameter.');
