@@ -25,8 +25,8 @@ $student = $studentStmt->fetch();
 if (!$student) error_response('Student account not found.', 404);
 
 $like = '%' . $q . '%';
-$stmt = $pdo->prepare('SELECT s.*, c.program_name FROM subjects s LEFT JOIN curricula c ON c.program_code=s.program_code WHERE s.semester=? AND (s.sub_code LIKE ? OR s.description LIKE ?) ORDER BY s.program_code, s.year_level, s.sub_code, s.section, s.subject_id LIMIT 50');
-$stmt->execute([$semester, $like, $like]);
+$stmt = $pdo->prepare('SELECT s.*, c.program_name FROM subjects s LEFT JOIN curricula c ON c.program_code=s.program_code WHERE s.term_code=? AND s.semester=? AND (s.sub_code LIKE ? OR s.description LIKE ?) ORDER BY s.program_code, s.year_level, s.sub_code, s.section, s.subject_id LIMIT 50');
+$stmt->execute([$term['term_code'], $semester, $like, $like]);
 $rows = $stmt->fetchAll();
 
 $prereqStmt = $pdo->prepare('SELECT p.sub_code, p.description FROM subject_prerequisites sp JOIN subjects p ON p.subject_id=sp.prereq_subject_id WHERE sp.subject_id=? ORDER BY p.sub_code,p.subject_id');
@@ -83,7 +83,7 @@ foreach ($rows as $s) {
 
     $out[]=[
         'subject'=>[
-            'subjectId'=>(int)$s['subject_id'], 'programCode'=>$s['program_code'],
+            'subjectId'=>(int)$s['subject_id'], 'curriculumSubjectId'=>(!empty($s['curriculum_subject_id']) ? (int)$s['curriculum_subject_id'] : null), 'programCode'=>$s['program_code'],
             'subCode'=>$s['sub_code'], 'schedCode'=>$s['sched_code'],
             'description'=>$s['description'], 'units'=>(float)$s['units'],
             'schedule'=>$s['schedule'], 'section'=>$s['section'],

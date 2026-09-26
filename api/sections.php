@@ -27,7 +27,7 @@ $pdo = db();
 $capacityStmt = $pdo->prepare('SELECT capacity FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=? LIMIT 1');
 $countStmt = $pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN users u ON u.id=er.student_id WHERE er.school_year=? AND er.term_code=? AND er.selected_section=? AND u.program=? AND u.year_level=? AND EXISTS (SELECT 1 FROM request_subjects rs WHERE rs.request_id=er.id AND rs.status <> "rejected")');
 $subjectStmt = $pdo->prepare('SELECT DISTINCT section FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND TRIM(section)<>"" ORDER BY section');
-$subjectStmt->execute([$program, $yearLevel, $semester]);
+$subjectStmt->execute([$program, $yearLevel, $semester, $termCode]);
 
 $termStmt = $pdo->prepare('SELECT school_year FROM academic_terms WHERE term_code=? LIMIT 1');
 $termStmt->execute([$termCode]);

@@ -45,11 +45,11 @@ try {
     $enrolled=(int)($countStmt->fetch()['enrolled']??0);
     if($enrolled >= $capacity) { $pdo->rollBack(); error_response("Section {$selectedSection} is full ({$capacity} slots). Please choose another section.",409); }
 
-    $sectionCheck=$pdo->prepare('SELECT COUNT(*) AS c FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND section=?');
-    $sectionCheck->execute([$program,$yearLevel,(int)$currentTerm['semester'],$selectedSection]);
+    $sectionCheck=$pdo->prepare('SELECT COUNT(*) AS c FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND term_code=? AND section=?');
+    $sectionCheck->execute([$program,$yearLevel,(int)$currentTerm['semester'],$termCode,$selectedSection]);
     if((int)$sectionCheck->fetch()['c']===0) { $pdo->rollBack(); error_response('Selected section is not available for your program, year level, and current semester.',400); }
 
-    $subjectStmt=$pdo->prepare('SELECT * FROM subjects WHERE subject_id=? AND semester=? LIMIT 1');
+    $subjectStmt=$pdo->prepare('SELECT * FROM subjects WHERE subject_id=? AND semester=? AND term_code=? LIMIT 1');
     $prereqStmt=$pdo->prepare('SELECT p.sub_code FROM subject_prerequisites sp JOIN subjects p ON p.subject_id=sp.prereq_subject_id WHERE sp.subject_id=? ORDER BY p.sub_code,p.subject_id');
     $gradeStmt=$pdo->prepare('SELECT grade, passed FROM academic_records WHERE student_id=? AND sub_code=? ORDER BY id DESC LIMIT 1');
     $countOfferingStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id JOIN subjects os ON os.subject_id=rs.subject_id WHERE er.term_code=? AND os.program_code=? AND os.year_level=? AND os.section=? AND rs.status<>"rejected"');
@@ -62,7 +62,7 @@ try {
         if($subjectId<=0 || isset($seen[$subjectId])) { $pdo->rollBack(); error_response('Each selected subject must include a unique subjectId.',400); }
         $seen[$subjectId]=true;
 
-        $subjectStmt->execute([$subjectId,(int)$currentTerm['semester']]);
+        $subjectStmt->execute([$subjectId,(int)$currentTerm['semester'],$termCode]);
         $offering=$subjectStmt->fetch();
         if(!$offering){$pdo->rollBack();error_response('One or more selected subjects is not offered in the current semester.',400);}
 

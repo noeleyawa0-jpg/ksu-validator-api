@@ -31,8 +31,14 @@ $curStmt->execute([$programCode]);
 $curriculum = $curStmt->fetch();
 if (!$curriculum) error_response('Curriculum not found.', 404);
 
-$sql = 'SELECT * FROM subjects WHERE program_code = ?';
-$params = [$programCode];
+$requestedTerm = trim($_GET['termCode'] ?? '');
+$termStmt = $pdo->query('SELECT term_code FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1');
+$currentTerm = $termStmt->fetchColumn();
+if (!$currentTerm) error_response('No current academic term is configured.', 409);
+$termCode = $requestedTerm !== '' ? $requestedTerm : $currentTerm;
+
+$sql = 'SELECT * FROM subjects WHERE program_code = ? AND term_code = ?';
+$params = [$programCode, $termCode];
 if ($semesterFilter !== 0) { $sql .= ' AND semester = ?'; $params[] = $semesterFilter; }
 if ($yearLevelFilter !== 0) { $sql .= ' AND year_level = ?'; $params[] = $yearLevelFilter; }
 if ($section !== '') { $sql .= ' AND section = ?'; $params[] = $section; }
@@ -54,6 +60,7 @@ $subjectsOut = array_map(function ($s) use ($prereqStmt) {
     $prereqs = array_column($prereqStmt->fetchAll(), 'sub_code');
     return [
         'subjectId' => (int)$s['subject_id'],
+        'curriculumSubjectId' => !empty($s['curriculum_subject_id']) ? (int)$s['curriculum_subject_id'] : null,
         'programCode' => $s['program_code'],
         'subCode' => $s['sub_code'],
         'schedCode' => $s['sched_code'],
@@ -74,5 +81,6 @@ respond([
     'programName' => $curriculum['program_name'],
     'department' => $curriculum['department'],
     'effectiveSchoolYear' => $curriculum['effective_school_year'],
+    'termCode' => $termCode,
     'subjects' => $subjectsOut,
 ]);
