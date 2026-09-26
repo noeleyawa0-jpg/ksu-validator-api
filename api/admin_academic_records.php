@@ -9,11 +9,12 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
 
-function require_admin(): void {
+function require_admin_or_chair(): array {
     $session = current_session();
-    if (!$session || ($session['role'] ?? '') !== 'admin') {
+    if (!$session || !in_array(($session['role'] ?? ''), ['admin', 'chairperson'], true)) {
         error_response('Unauthorized', 401);
     }
+    return $session;
 }
 
 function normalize_grade(string $grade): string {
@@ -43,8 +44,13 @@ function status_from_grade(string $grade, bool $passed): string {
     return 'failed';
 }
 
-require_admin();
+$session = require_admin_or_chair();
 $pdo = db();
+$isChair = ($session['role'] ?? '') === 'chairperson';
+$chairProgram = trim((string)($session['program'] ?? ''));
+if ($isChair && $chairProgram === '') {
+    error_response('This chairperson account has no program assigned.', 403);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $studentId = trim($_GET['studentId'] ?? '');
@@ -54,6 +60,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $studentStmt->execute([$studentId]);
     $student = $studentStmt->fetch();
     if (!$student) error_response('Student not found.', 404);
+    if ($isChair && $student['program'] !== $chairProgram) {
+        error_response('You can only manage grades for students in your assigned program.', 403);
+    }
 
     $stmt = $pdo->prepare('SELECT id, student_id, sub_code, school_year_taken, grade, passed FROM academic_records WHERE student_id = ? ORDER BY school_year_taken DESC, sub_code ASC, id DESC');
     $stmt->execute([$studentId]);
@@ -94,16 +103,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         error_response('Invalid KSU grade. Use 1.00, 1.25, 1.50, 1.75, 2.00, 2.25, 2.50, 2.75, 3.00, 5.00, INC, or OD.');
     }
 
-    $studentStmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND role = 'student' LIMIT 1");
+    $studentStmt = $pdo->prepare("SELECT id, program FROM users WHERE id = ? AND role = 'student' LIMIT 1");
     $studentStmt->execute([$studentId]);
-    if (!$studentStmt->fetch()) error_response('Student not found.', 404);
+    $student = $studentStmt->fetch();
+    if (!$student) error_response('Student not found.', 404);
+    if ($isChair && $student['program'] !== $chairProgram) {
+        error_response('You can only manage grades for students in your assigned program.', 403);
+    }
 
     // Verify the subject exists for at least one curriculum program. The
     // academic_records table intentionally remains keyed by sub_code because
     // that is the existing schema used by the SIS-style history API.
-    $subjectStmt = $pdo->prepare('SELECT sub_code FROM subjects WHERE sub_code = ? LIMIT 1');
-    $subjectStmt->execute([$subCode]);
-    if (!$subjectStmt->fetch()) error_response('Subject code not found in the curriculum.', 404);
+    if ($isChair) {
+        $subjectStmt = $pdo->prepare('SELECT sub_code FROM subjects WHERE sub_code = ? AND program_code = ? LIMIT 1');
+        $subjectStmt->execute([$subCode, $chairProgram]);
+    } else {
+        $subjectStmt = $pdo->prepare('SELECT sub_code FROM subjects WHERE sub_code = ? LIMIT 1');
+        $subjectStmt->execute([$subCode]);
+    }
+    if (!$subjectStmt->fetch()) error_response('Subject code not found in the assigned program curriculum.', 404);
 
     $passed = passed_from_grade($grade) ? 1 : 0;
 
@@ -134,9 +152,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     $id = (int)($_GET['id'] ?? 0);
     if ($id <= 0) error_response('Record id is required.');
 
-    $stmt = $pdo->prepare('DELETE FROM academic_records WHERE id = ?');
-    $stmt->execute([$id]);
-    if ($stmt->rowCount() === 0) error_response('Academic record not found.', 404);
+    if ($isChair) {
+        $stmt = $pdo->prepare('DELETE ar FROM academic_records ar JOIN users u ON u.id = ar.student_id WHERE ar.id = ? AND u.role = 'student' AND u.program = ?');
+        $stmt->execute([$id, $chairProgram]);
+    } else {
+        $stmt = $pdo->prepare('DELETE FROM academic_records WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+    if ($stmt->rowCount() === 0) error_response('Academic record not found or outside your assigned program.', 404);
     respond(['status' => 'ok']);
 }
 
