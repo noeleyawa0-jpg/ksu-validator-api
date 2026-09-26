@@ -1,5 +1,7 @@
 <?php
 // api/validation_queue.php -> GET /api/validation_queue.php[?program=BSIT]
+// Returns enrollment requests plus prerequisite checks backed by the student's
+// academic_records. Chairpersons are always scoped to their own program.
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
@@ -9,10 +11,10 @@ $session = current_session();
 if (!$session) error_response('Unauthorized', 401);
 
 if ($session['role'] === 'chairperson') {
-    $program = $session['program'] ?? '';
+    $program = trim((string)($session['program'] ?? ''));
     if ($program === '') error_response('This chairperson account has no program assigned.', 403);
 } elseif ($session['role'] === 'admin') {
-    $program = trim($_GET['program'] ?? '');
+    $program = trim((string)($_GET['program'] ?? ''));
     if ($program === '') error_response('Missing program parameter.');
 } else {
     error_response('Unauthorized', 401);
@@ -35,7 +37,7 @@ $reqStmt->execute([$program]);
 $requests = $reqStmt->fetchAll();
 
 $subStmt = $pdo->prepare('
-    SELECT rs.*, s.subject_id, s.description, s.units, s.schedule, s.section,
+    SELECT rs.*, s.subject_id, s.sub_code, s.description, s.units, s.schedule, s.section,
            s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester
     FROM request_subjects rs
     JOIN subjects s ON s.subject_id = rs.subject_id
@@ -47,50 +49,64 @@ $prereqStmt = $pdo->prepare('
     SELECT p.subject_id, p.sub_code, p.description
     FROM subject_prerequisites sp
     JOIN subjects p ON p.subject_id = sp.prereq_subject_id
-    WHERE sp.subject_id = ? ORDER BY p.sub_code, p.subject_id
+    WHERE sp.subject_id = ?
+    ORDER BY p.sub_code, p.subject_id
 ');
 
-$historyStmt = $pdo->prepare('SELECT sub_code, school_year_taken, grade, passed FROM academic_records WHERE student_id = ? ORDER BY school_year_taken DESC, id DESC');
+$gradeStmt = $pdo->prepare('
+    SELECT grade, school_year_taken, passed
+    FROM academic_records
+    WHERE student_id = ? AND sub_code = ?
+    ORDER BY id DESC
+    LIMIT 1
+');
+
+function prerequisite_status(string $grade, bool $passed): string {
+    $grade = strtoupper(trim($grade));
+    if ($passed) return 'qualified';
+    if ($grade === 'INC') return 'incomplete';
+    if ($grade === 'OD') return 'dropped';
+    return 'failed';
+}
 
 $out = [];
 foreach ($requests as $r) {
     $subStmt->execute([$r['id']]);
-    $historyStmt->execute([$r['student_id']]);
-    $historyByCode = [];
-    foreach ($historyStmt->fetchAll() as $h) {
-        // Keep the newest record for a prerequisite code.
-        if (!isset($historyByCode[$h['sub_code']])) {
-            $historyByCode[$h['sub_code']] = $h;
-        }
-    }
+    $selections = [];
 
-    $selections = array_map(function ($s) use ($prereqStmt, $historyByCode) {
+    foreach ($subStmt->fetchAll() as $s) {
         $prereqStmt->execute([(int)$s['subject_id']]);
         $prereqRows = $prereqStmt->fetchAll();
-        $prerequisiteChecks = array_map(function ($p) use ($historyByCode) {
-            $record = $historyByCode[$p['sub_code']] ?? null;
-            if (!$record) {
-                $status = 'missing';
-            } elseif ((bool)$record['passed']) {
-                $status = 'qualified';
-            } elseif (in_array(strtoupper(trim((string)$record['grade'])), ['INC', 'INCOMPLETE'], true)) {
-                $status = 'incomplete';
-            } elseif (in_array(strtoupper(trim((string)$record['grade'])), ['OD', 'DRP', 'DROP', 'DROPPED'], true)) {
-                $status = 'dropped';
-            } else {
-                $status = 'failed';
-            }
-            return [
-                'subjectId' => (int)$p['subject_id'],
-                'subCode' => $p['sub_code'],
-                'description' => $p['description'],
-                'grade' => $record['grade'] ?? null,
-                'schoolYearTaken' => $record['school_year_taken'] ?? null,
-                'status' => $status,
-            ];
-        }, $prereqRows);
+        $prerequisiteChecks = [];
 
-        return [
+        foreach ($prereqRows as $p) {
+            $gradeStmt->execute([$r['student_id'], $p['sub_code']]);
+            $grade = $gradeStmt->fetch();
+
+            if (!$grade) {
+                $prerequisiteChecks[] = [
+                    'subjectId' => (int)$p['subject_id'],
+                    'subCode' => $p['sub_code'],
+                    'description' => $p['description'],
+                    'grade' => null,
+                    'schoolYearTaken' => null,
+                    'status' => 'missing',
+                ];
+            } else {
+                $gradeValue = strtoupper(trim((string)$grade['grade']));
+                $passed = (bool)$grade['passed'];
+                $prerequisiteChecks[] = [
+                    'subjectId' => (int)$p['subject_id'],
+                    'subCode' => $p['sub_code'],
+                    'description' => $p['description'],
+                    'grade' => $gradeValue,
+                    'schoolYearTaken' => $grade['school_year_taken'],
+                    'status' => prerequisite_status($gradeValue, $passed),
+                ];
+            }
+        }
+
+        $selections[] = [
             'subject' => [
                 'subjectId' => (int)$s['subject_id'],
                 'subCode' => $s['sub_code'],
@@ -106,12 +122,12 @@ foreach ($requests as $r) {
                 'semester' => (int)$s['semester'],
             ],
             'localCheck' => $s['local_check'],
-            'prerequisiteChecks' => $prerequisiteChecks,
             'status' => $s['status'],
             'chairRemarks' => $s['chair_remarks'],
             'overrideApplied' => (bool)$s['override_applied'],
+            'prerequisiteChecks' => $prerequisiteChecks,
         ];
-    }, $subStmt->fetchAll());
+    }
 
     $out[] = [
         'id' => $r['id'],

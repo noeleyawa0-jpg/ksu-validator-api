@@ -64,8 +64,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         error_response('You can only manage grades for students in your assigned program.', 403);
     }
 
-    $stmt = $pdo->prepare('SELECT id, student_id, sub_code, school_year_taken, grade, passed FROM academic_records WHERE student_id = ? ORDER BY school_year_taken DESC, sub_code ASC, id DESC');
-    $stmt->execute([$studentId]);
+    $stmt = $pdo->prepare('SELECT ar.id, ar.student_id, ar.sub_code, ar.school_year_taken, ar.grade, ar.passed,
+            COALESCE((SELECT s.description FROM subjects s
+                      WHERE s.sub_code = ar.sub_code AND s.program_code = ?
+                      ORDER BY s.subject_id ASC LIMIT 1), ar.sub_code) AS description,
+            COALESCE((SELECT s.units FROM subjects s
+                      WHERE s.sub_code = ar.sub_code AND s.program_code = ?
+                      ORDER BY s.subject_id ASC LIMIT 1), 0) AS units
+        FROM academic_records ar
+        WHERE ar.student_id = ?
+        ORDER BY ar.school_year_taken DESC, ar.sub_code ASC, ar.id DESC');
+    $stmt->execute([$student['program'], $student['program'], $studentId]);
 
     $records = array_map(function ($r) {
         $grade = strtoupper(trim((string)$r['grade']));
@@ -78,6 +87,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             'grade' => $r['grade'],
             'passed' => (bool)$r['passed'],
             'status' => $status,
+            'description' => $r['description'] ?? $r['sub_code'],
+            'units' => (float)($r['units'] ?? 0),
         ];
     }, $stmt->fetchAll());
 
