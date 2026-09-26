@@ -153,7 +153,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     if ($id <= 0) error_response('Record id is required.');
 
     if ($isChair) {
-        $stmt = $pdo->prepare('DELETE ar FROM academic_records ar JOIN users u ON u.id = ar.student_id WHERE ar.id = ? AND u.role = 'student' AND u.program = ?');
+        $stmt = $pdo->prepare("DELETE ar FROM academic_records ar JOIN users u ON u.id = ar.student_id WHERE ar.id = ? AND u.role = 'student' AND u.program = ?");
         $stmt->execute([$id, $chairProgram]);
     } else {
         $stmt = $pdo->prepare('DELETE FROM academic_records WHERE id = ?');
