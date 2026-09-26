@@ -14,8 +14,10 @@ if (!$session || ($session['role'] ?? '') !== 'admin') error_response('Unauthori
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') error_response('Method not allowed', 405);
 
 $body = json_body();
-$targetSection = strtoupper(trim((string)($body['targetSection'] ?? 'B')));
-if ($targetSection !== 'B') error_response('Only Section B creation is supported.');
+// Section B is generated from the offering's program and year level, e.g.
+// BSIT 1B, BSIT 2B, BSCpE 3B, etc. The client does not choose the stored section label.
+$targetSectionRequest = strtoupper(trim((string)($body['targetSection'] ?? '')));
+if ($targetSectionRequest !== '' && $targetSectionRequest !== 'B') error_response('Only Section B creation is supported.');
 
 $requestedProgram = trim((string)($body['program'] ?? ''));
 $sourceSubjectId = isset($body['sourceSubjectId']) && $body['sourceSubjectId'] !== ''
@@ -46,7 +48,8 @@ try {
         }
 
         $sourceSection = strtoupper(trim((string)$source['section']));
-        if ($sourceSection === 'B' || preg_match('/(?:^|-|\s)B$/i', $sourceSection)) {
+        $targetSection = $program . ' ' . (int)$source['year_level'] . 'B';
+        if ($sourceSection === strtoupper($targetSection) || $sourceSection === 'B' || preg_match('/(?:^|-|\s)B$/i', $sourceSection)) {
             error_response('This offering is already a Section B offering.', 409);
         }
 
@@ -61,8 +64,28 @@ try {
             respond([
                 'status' => 'ok', 'created' => 0, 'skipped' => 1,
                 'totalCreated' => 0, 'totalSkipped' => 1,
-                'termCode' => $currentTerm, 'targetSection' => 'B',
-                'message' => 'A Section B offering already exists for this curriculum subject.'
+                'termCode' => $currentTerm, 'targetSection' => $targetSection,
+                'message' => "$targetSection already exists for this curriculum subject."
+            ]);
+        }
+
+        // Upgrade an older test record that used the generic section "B".
+        $legacy = $pdo->prepare("SELECT subject_id FROM subjects
+            WHERE term_code = ? AND program_code = ? AND section = 'B'
+              AND ((curriculum_subject_id IS NOT NULL AND curriculum_subject_id = ?)
+                   OR (curriculum_subject_id IS NULL AND sub_code = ?))
+            LIMIT 1");
+        $legacy->execute([$currentTerm, $program, $source['curriculum_subject_id'], $source['sub_code']]);
+        $legacyId = $legacy->fetchColumn();
+        if ($legacyId) {
+            $pdo->beginTransaction();
+            $rename = $pdo->prepare('UPDATE subjects SET section = ? WHERE subject_id = ?');
+            $rename->execute([$targetSection, (int)$legacyId]);
+            $pdo->commit();
+            respond([
+                'status'=>'ok', 'created'=>0, 'skipped'=>0, 'totalCreated'=>0, 'totalSkipped'=>0,
+                'termCode'=>$currentTerm, 'targetSection'=>$targetSection, 'subjectId'=>(int)$legacyId,
+                'message'=>"Existing legacy Section B was upgraded to $targetSection."
             ]);
         }
 
@@ -74,7 +97,7 @@ try {
         $insert->execute([
             $source['curriculum_subject_id'], $currentTerm, $source['sub_code'], $program,
             $source['sched_code'], $source['description'], $source['units'], $source['schedule'],
-            'B', $source['instructor'], $source['is_exclusive'], $source['year_level'], $source['semester']
+            $targetSection, $source['instructor'], $source['is_exclusive'], $source['year_level'], $source['semester']
         ]);
         $newId = (int)$pdo->lastInsertId();
 
@@ -92,14 +115,14 @@ try {
             WHERE NOT EXISTS (SELECT 1 FROM section_capacities
                 WHERE term_code=? AND program_code=? AND year_level=? AND section=?)');
         $capacity->execute([
-            $currentTerm, $program, $source['year_level'], 'B',
-            $currentTerm, $program, $source['year_level'], 'B'
+            $currentTerm, $program, $source['year_level'], $targetSection,
+            $currentTerm, $program, $source['year_level'], $targetSection
         ]);
 
         $pdo->commit();
         respond([
             'status'=>'ok', 'created'=>1, 'skipped'=>0, 'totalCreated'=>1, 'totalSkipped'=>0,
-            'termCode'=>$currentTerm, 'targetSection'=>'B', 'subjectId'=>$newId,
+            'termCode'=>$currentTerm, 'targetSection'=>$targetSection, 'subjectId'=>$newId,
             'message'=>'Section B offering created successfully.'
         ]);
     }
@@ -121,6 +144,11 @@ try {
         WHERE term_code=? AND program_code=? AND section=?
           AND ((curriculum_subject_id IS NOT NULL AND curriculum_subject_id=?)
                OR (curriculum_subject_id IS NULL AND sub_code=?)) LIMIT 1');
+    $findLegacyB = $pdo->prepare("SELECT subject_id FROM subjects
+        WHERE term_code=? AND program_code=? AND section='B'
+          AND ((curriculum_subject_id IS NOT NULL AND curriculum_subject_id=?)
+               OR (curriculum_subject_id IS NULL AND sub_code=?)) LIMIT 1");
+    $renameLegacy = $pdo->prepare('UPDATE subjects SET section=? WHERE subject_id=?');
     $insert = $pdo->prepare('INSERT INTO subjects
         (curriculum_subject_id, term_code, sub_code, program_code, sched_code, description, units,
          schedule, section, instructor, is_exclusive, year_level, semester)
@@ -140,23 +168,33 @@ try {
         $findSources->execute([$program, $currentTerm]);
         $programCreated = 0; $programSkipped = 0;
         foreach ($findSources->fetchAll() as $source) {
+            $targetSection = $program . ' ' . (int)$source['year_level'] . 'B';
             $findExisting->execute([
-                $currentTerm, $program, 'B', $source['curriculum_subject_id'], $source['sub_code']
+                $currentTerm, $program, $targetSection, $source['curriculum_subject_id'], $source['sub_code']
             ]);
             if ($findExisting->fetch()) {
                 $programSkipped++; $totalSkipped++; continue;
             }
 
+            // Upgrade any legacy generic "B" offering created by an older build.
+            $findLegacyB->execute([$currentTerm, $program, $source['curriculum_subject_id'], $source['sub_code']]);
+            $legacyId = $findLegacyB->fetchColumn();
+            if ($legacyId) {
+                $renameLegacy->execute([$targetSection, (int)$legacyId]);
+                $programCreated++; $totalCreated++;
+                continue;
+            }
+
             $insert->execute([
                 $source['curriculum_subject_id'], $currentTerm, $source['sub_code'], $program,
                 $source['sched_code'], $source['description'], $source['units'], $source['schedule'],
-                'B', $source['instructor'], $source['is_exclusive'], $source['year_level'], $source['semester']
+                $targetSection, $source['instructor'], $source['is_exclusive'], $source['year_level'], $source['semester']
             ]);
             $newId = (int)$pdo->lastInsertId();
             $copy->execute([$newId, $source['sub_code'], $source['subject_id']]);
             $capacity->execute([
-                $currentTerm, $program, $source['year_level'], 'B',
-                $currentTerm, $program, $source['year_level'], 'B'
+                $currentTerm, $program, $source['year_level'], $targetSection,
+                $currentTerm, $program, $source['year_level'], $targetSection
             ]);
             $programCreated++; $totalCreated++;
         }
@@ -166,7 +204,7 @@ try {
     $pdo->commit();
 
     respond([
-        'status'=>'ok', 'targetSection'=>'B', 'termCode'=>$currentTerm,
+        'status'=>'ok', 'targetSection'=>'PROGRAM-YEAR-B', 'termCode'=>$currentTerm,
         'created'=>$created, 'skipped'=>$skipped,
         'totalCreated'=>$totalCreated, 'totalSkipped'=>$totalSkipped,
         'message'=>$totalCreated > 0
