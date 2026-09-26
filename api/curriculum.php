@@ -12,8 +12,10 @@ if (!$session) error_response('Unauthorized', 401);
 $programCode = trim($_GET['program'] ?? '');
 $section = trim($_GET['section'] ?? '');
 $semesterFilter = isset($_GET['semester']) ? (int)$_GET['semester'] : 0;
+$yearLevelFilter = isset($_GET['yearLevel']) ? (int)$_GET['yearLevel'] : 0;
 if ($programCode === '') error_response('Missing program parameter.');
 if ($semesterFilter !== 0 && !in_array($semesterFilter, [1,2,3], true)) error_response('Invalid semester.');
+if ($yearLevelFilter !== 0 && ($yearLevelFilter < 1 || $yearLevelFilter > 5)) error_response('Invalid year level.');
 
 $pdo = db();
 $curStmt = $pdo->prepare('SELECT * FROM curricula WHERE program_code = ? LIMIT 1');
@@ -21,12 +23,14 @@ $curStmt->execute([$programCode]);
 $curriculum = $curStmt->fetch();
 if (!$curriculum) error_response('Curriculum not found.', 404);
 
-$subStmt = $pdo->prepare('
-    SELECT * FROM subjects
-    WHERE program_code = ?
-    ORDER BY year_level ASC, semester ASC, sub_code ASC, subject_id ASC
-');
-$subStmt->execute([$programCode]);
+$sql = 'SELECT * FROM subjects WHERE program_code = ?';
+$params = [$programCode];
+if ($semesterFilter !== 0) { $sql .= ' AND semester = ?'; $params[] = $semesterFilter; }
+if ($yearLevelFilter !== 0) { $sql .= ' AND year_level = ?'; $params[] = $yearLevelFilter; }
+if ($section !== '') { $sql .= ' AND section = ?'; $params[] = $section; }
+$sql .= ' ORDER BY year_level ASC, semester ASC, sub_code ASC, subject_id ASC';
+$subStmt = $pdo->prepare($sql);
+$subStmt->execute($params);
 $subjects = $subStmt->fetchAll();
 
 $prereqStmt = $pdo->prepare('
@@ -42,6 +46,7 @@ $subjectsOut = array_map(function ($s) use ($prereqStmt) {
     $prereqs = array_column($prereqStmt->fetchAll(), 'sub_code');
     return [
         'subjectId' => (int)$s['subject_id'],
+        'programCode' => $s['program_code'],
         'subCode' => $s['sub_code'],
         'schedCode' => $s['sched_code'],
         'description' => $s['description'],

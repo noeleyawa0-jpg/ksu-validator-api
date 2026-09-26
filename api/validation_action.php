@@ -24,15 +24,15 @@ if ($requestId === '' || $subjectId <= 0 || !in_array($status, ['validated', 're
 
 $pdo = db();
 $check = $pdo->prepare('
-    SELECT u.program
+    SELECT s.program_code AS offering_program
     FROM enrollment_requests er
-    JOIN users u ON u.id = er.student_id
     JOIN request_subjects rs ON rs.request_id = er.id
+    JOIN subjects s ON s.subject_id = rs.subject_id
     WHERE er.id = ? AND rs.subject_id = ? LIMIT 1
 ');
 $check->execute([$requestId, $subjectId]);
 $row = $check->fetch();
-if (!$row || $row['program'] !== $chairProgram) error_response('This request/subject does not belong to your program.', 403);
+if (!$row || $row['offering_program'] !== $chairProgram) error_response('This subject offering is not assigned to your chairperson program.', 403);
 
 $stmt = $pdo->prepare('
     UPDATE request_subjects

@@ -30,14 +30,18 @@ $reqStmt = $pdo->prepare('
            u.year_section AS student_year_section
     FROM enrollment_requests er
     JOIN users u ON u.id = er.student_id
-    WHERE u.program = ?
+    WHERE EXISTS (
+        SELECT 1 FROM request_subjects qrs
+        JOIN subjects qs ON qs.subject_id=qrs.subject_id
+        WHERE qrs.request_id=er.id AND qs.program_code=?
+    )
     ORDER BY er.submitted_at DESC
 ');
 $reqStmt->execute([$program]);
 $requests = $reqStmt->fetchAll();
 
 $subStmt = $pdo->prepare('
-    SELECT rs.*, s.subject_id, s.sub_code, s.description, s.units, s.schedule, s.section,
+    SELECT rs.*, s.subject_id, s.program_code, s.sub_code, s.description, s.units, s.schedule, s.section,
            s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester
     FROM request_subjects rs
     JOIN subjects s ON s.subject_id = rs.subject_id
@@ -75,6 +79,10 @@ foreach ($requests as $r) {
     $selections = [];
 
     foreach ($subStmt->fetchAll() as $s) {
+        // A chairperson only sees the subject offerings owned by their program.
+        // A mixed request can therefore appear in more than one chair queue,
+        // with each chair seeing only the subjects they are responsible for.
+        if ($s['program_code'] !== $program) continue;
         $prereqStmt->execute([(int)$s['subject_id']]);
         $prereqRows = $prereqStmt->fetchAll();
         $prerequisiteChecks = [];
@@ -109,6 +117,7 @@ foreach ($requests as $r) {
         $selections[] = [
             'subject' => [
                 'subjectId' => (int)$s['subject_id'],
+                'programCode' => $s['program_code'],
                 'subCode' => $s['sub_code'],
                 'schedCode' => $s['sched_code'],
                 'description' => $s['description'],
