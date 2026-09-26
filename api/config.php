@@ -1,7 +1,9 @@
 <?php
 // Shared DB connection and HTTP helpers for the Render/TiDB deployment.
 
-header('Content-Type: application/json');
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Headers: Content-Type, Authorization');
 header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
@@ -10,6 +12,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(204);
     exit;
 }
+set_exception_handler(function (Throwable $e): void {
+    error_log($e->getMessage());
+    http_response_code(500);
+    echo json_encode(['error' => 'Server error. Please try again.']);
+    exit;
+});
 
 function env_required(string $name): string {
     $value = getenv($name);

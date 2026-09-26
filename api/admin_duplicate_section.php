@@ -37,7 +37,7 @@ try {
 
     // One-subject operation: create exactly one B offering.
     if ($sourceSubjectId !== null) {
-        $stmt = $pdo->prepare('SELECT * FROM subjects WHERE subject_id = ? AND term_code = ? LIMIT 1');
+        $stmt = $pdo->prepare('SELECT * FROM subjects WHERE subject_id = ? AND (term_code = ? OR term_code IS NULL) LIMIT 1');
         $stmt->execute([$sourceSubjectId, $currentTerm]);
         $source = $stmt->fetch();
         if (!$source) error_response('Source subject offering was not found in the current academic term.', 404);
@@ -136,7 +136,7 @@ try {
     $totalSkipped = 0;
 
     $findSources = $pdo->prepare("SELECT * FROM subjects
-        WHERE program_code = ? AND term_code = ?
+        WHERE program_code = ? AND (term_code = ? OR term_code IS NULL)
           AND UPPER(TRIM(section)) <> 'B'
           AND UPPER(TRIM(section)) NOT LIKE '%-B'
         ORDER BY year_level, semester, subject_id");
