@@ -31,8 +31,8 @@ $rows = $stmt->fetchAll();
 
 $prereqStmt = $pdo->prepare('SELECT p.sub_code, p.description FROM subject_prerequisites sp JOIN subjects p ON p.subject_id=sp.prereq_subject_id WHERE sp.subject_id=? ORDER BY p.sub_code,p.subject_id');
 $gradeStmt = $pdo->prepare('SELECT grade, passed FROM academic_records WHERE student_id=? AND sub_code=? ORDER BY id DESC LIMIT 1');
-$countStmt = $pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id JOIN subjects os ON os.subject_id=rs.subject_id WHERE er.term_code=? AND os.program_code=? AND os.year_level=? AND os.section=? AND rs.status<>"rejected"');
-$capacityStmt = $pdo->prepare('SELECT capacity FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=? LIMIT 1');
+$countStmt = $pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id WHERE er.term_code=? AND rs.subject_id=? AND rs.status<>"rejected"');
+$capacityStmt = $pdo->prepare('SELECT capacity FROM subject_capacities WHERE subject_id=? LIMIT 1');
 
 function search_prereq_status(?array $grade): string {
     if (!$grade) return 'missing';
@@ -73,9 +73,9 @@ foreach ($rows as $s) {
         $eligible=false; $reason='This subject is beyond the allowed year-level range.';
     }
 
-    $countStmt->execute([$term['term_code'],$s['program_code'],(int)$s['year_level'],trim($s['section'])]);
+    $countStmt->execute([$term['term_code'],(int)$s['subject_id']]);
     $enrolled=(int)($countStmt->fetch()['enrolled'] ?? 0);
-    $capacityStmt->execute([$term['term_code'],$s['program_code'],(int)$s['year_level'],trim($s['section'])]);
+    $capacityStmt->execute([(int)$s['subject_id']]);
     $capRow=$capacityStmt->fetch();
     $capacity=$capRow ? (int)$capRow['capacity'] : 40;
     $available=max(0,$capacity-$enrolled);

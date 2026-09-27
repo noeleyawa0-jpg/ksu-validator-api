@@ -37,7 +37,7 @@ $currentTerm = $termStmt->fetchColumn();
 if (!$currentTerm) error_response('No current academic term is configured.', 409);
 $termCode = $requestedTerm !== '' ? $requestedTerm : $currentTerm;
 
-$sql = 'SELECT * FROM subjects WHERE program_code = ? AND (term_code = ? OR term_code IS NULL)';
+$sql = 'SELECT * FROM subjects WHERE program_code = ? AND term_code = ?';
 $params = [$programCode, $termCode];
 if ($semesterFilter !== 0) { $sql .= ' AND semester = ?'; $params[] = $semesterFilter; }
 if ($yearLevelFilter !== 0) { $sql .= ' AND year_level = ?'; $params[] = $yearLevelFilter; }

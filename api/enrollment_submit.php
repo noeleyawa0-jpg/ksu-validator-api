@@ -37,13 +37,6 @@ try {
     $existingStmt->execute([$studentId,$termCode]);
     if($existingStmt->fetch()) { $pdo->rollBack(); error_response('You already submitted a pre-enrollment request for this term. Please use Tracking to view its status.',409); }
 
-    $capacityStmt=$pdo->prepare('SELECT capacity FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=? LIMIT 1');
-    $capacityStmt->execute([$termCode,$program,$yearLevel,$selectedSection]);
-    $capacityRow=$capacityStmt->fetch(); $capacity=$capacityRow ? (int)$capacityRow['capacity'] : 40;
-    $countStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN users u ON u.id=er.student_id WHERE er.term_code=? AND er.selected_section=? AND u.program=? AND u.year_level=? AND EXISTS (SELECT 1 FROM request_subjects rs WHERE rs.request_id=er.id AND rs.status<>"rejected")');
-    $countStmt->execute([$termCode,$selectedSection,$program,$yearLevel]);
-    $enrolled=(int)($countStmt->fetch()['enrolled']??0);
-    if($enrolled >= $capacity) { $pdo->rollBack(); error_response("Section {$selectedSection} is full ({$capacity} slots). Please choose another section.",409); }
 
     $sectionCheck=$pdo->prepare('SELECT COUNT(*) AS c FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND term_code=? AND section=?');
     $sectionCheck->execute([$program,$yearLevel,(int)$currentTerm['semester'],$termCode,$selectedSection]);
@@ -52,8 +45,8 @@ try {
     $subjectStmt=$pdo->prepare('SELECT * FROM subjects WHERE subject_id=? AND semester=? AND term_code=? LIMIT 1');
     $prereqStmt=$pdo->prepare('SELECT p.sub_code FROM subject_prerequisites sp JOIN subjects p ON p.subject_id=sp.prereq_subject_id WHERE sp.subject_id=? ORDER BY p.sub_code,p.subject_id');
     $gradeStmt=$pdo->prepare('SELECT grade, passed FROM academic_records WHERE student_id=? AND sub_code=? ORDER BY id DESC LIMIT 1');
-    $countOfferingStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id JOIN subjects os ON os.subject_id=rs.subject_id WHERE er.term_code=? AND os.program_code=? AND os.year_level=? AND os.section=? AND rs.status<>"rejected"');
-    $capacityOfferingStmt=$pdo->prepare('SELECT capacity FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=? LIMIT 1');
+    $countOfferingStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id WHERE er.term_code=? AND rs.subject_id=? AND rs.status<>"rejected"');
+    $capacityOfferingStmt=$pdo->prepare('SELECT capacity FROM subject_capacities WHERE subject_id=? LIMIT 1');
     $insertStmt=$pdo->prepare('INSERT INTO request_subjects (request_id,sub_code,subject_id,local_check,status) VALUES (?,?,?,?,"pending")');
 
     $seen=[];
@@ -89,9 +82,9 @@ try {
             $pdo->rollBack(); error_response('You already completed '.$offering['sub_code'].'.',409);
         }
 
-        $countOfferingStmt->execute([$termCode,$offering['program_code'],(int)$offering['year_level'],trim($offering['section'])]);
+        $countOfferingStmt->execute([$termCode,$subjectId]);
         $enrolledOffering=(int)($countOfferingStmt->fetch()['enrolled']??0);
-        $capacityOfferingStmt->execute([$termCode,$offering['program_code'],(int)$offering['year_level'],trim($offering['section'])]);
+        $capacityOfferingStmt->execute([$subjectId]);
         $capRow=$capacityOfferingStmt->fetch(); $offeringCapacity=$capRow ? (int)$capRow['capacity'] : 40;
         if($enrolledOffering >= $offeringCapacity) {
             $pdo->rollBack(); error_response('The selected subject '.$offering['sub_code'].' is full.',409);
