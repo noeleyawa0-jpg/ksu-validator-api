@@ -64,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         error_response('You can only manage grades for students in your assigned program.', 403);
     }
 
-    $stmt = $pdo->prepare('SELECT ar.id, ar.student_id, ar.sub_code, ar.school_year_taken, ar.grade, ar.passed,
+    $stmt = $pdo->prepare('SELECT ar.id, ar.student_id, ar.sub_code, ar.school_year_taken, ar.term_code, ar.grade, ar.passed,
             COALESCE((SELECT s.description FROM subjects s
                       WHERE s.sub_code = ar.sub_code AND s.program_code = ?
                       ORDER BY s.subject_id ASC LIMIT 1), ar.sub_code) AS description,
@@ -143,7 +143,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $passed = passed_from_grade($grade) ? 1 : 0;
 
-    $existingStmt = $pdo->prepare('SELECT id FROM academic_records WHERE student_id = ? AND sub_code = ? AND school_year_taken = ? AND COALESCE(term_code, ) = ? ORDER BY id DESC LIMIT 1');
+    $existingStmt = $pdo->prepare('SELECT id FROM academic_records WHERE student_id = ? AND sub_code = ? AND school_year_taken = ? AND COALESCE(term_code, "") = ? ORDER BY id DESC LIMIT 1');
     $existingStmt->execute([$studentId, $subCode, $schoolYearTaken, $termCode]);
     $existing = $existingStmt->fetch();
 
