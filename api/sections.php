@@ -24,8 +24,8 @@ if (($session['role'] ?? '') === 'student') {
 }
 
 $pdo = db();
-$subjectStmt = $pdo->prepare('SELECT DISTINCT section FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND TRIM(section)<>"" ORDER BY section');
-$subjectStmt->execute([$program, $yearLevel, $semester, $termCode]);
+$subjectStmt = $pdo->prepare('SELECT DISTINCT section FROM subjects WHERE term_code=? AND program_code=? AND year_level=? AND semester=? AND TRIM(section)<>"" ORDER BY section');
+$subjectStmt->execute([$termCode, $program, $yearLevel, $semester]);
 
 $termStmt = $pdo->prepare('SELECT school_year FROM academic_terms WHERE term_code=? LIMIT 1');
 $termStmt->execute([$termCode]);
