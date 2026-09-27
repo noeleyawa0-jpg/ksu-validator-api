@@ -2,8 +2,8 @@
 // api/students_list.php -> GET /api/students_list.php[?program=BSIT&search=22-000001]
 //
 // Chairperson: always scoped to THEIR OWN program (taken from their signed
-// session token). Admin: can pass ?program=XXX. Optional ?search=... searches
-// by School ID (and, for convenience, exact/partial student name).
+// session token). Admin: roster browsing can be program-scoped, but a search
+// is GLOBAL across all student programs.
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
@@ -21,8 +21,9 @@ if ($session['role'] === 'chairperson') {
         error_response('This chairperson account has no program assigned. Ask the System Administrator to set one.', 403);
     }
 } elseif ($session['role'] === 'admin') {
+    // Admin can browse by selected program. When searching, program is ignored
+    // so the System Administrator can find any student globally.
     $program = trim((string)($_GET['program'] ?? ''));
-    if ($program === '') error_response('Missing program parameter.');
 } else {
     error_response('Unauthorized', 401);
 }
@@ -32,9 +33,19 @@ $search = trim((string)($_GET['search'] ?? ''));
 $sql = '
     SELECT id, first_name, last_name, email, program, year_level, year_section, enrollment_type
     FROM users
-    WHERE role = "student" AND program = ? AND year_level BETWEEN 1 AND 4
+    WHERE role = "student" AND year_level BETWEEN 1 AND 4
 ';
-$params = [$program];
+$params = [];
+
+// Chairpersons are always program-scoped. Admins are program-scoped only
+// when no search is supplied; a search is global across all CEIT programs.
+if ($session['role'] === 'chairperson' || $search === '') {
+    if ($program === '') {
+        error_response('Missing program parameter.');
+    }
+    $sql .= ' AND program = ?';
+    $params[] = $program;
+}
 
 if ($search !== '') {
     $sql .= ' AND (id LIKE ? OR CONCAT(first_name, " ", last_name) LIKE ?)';
