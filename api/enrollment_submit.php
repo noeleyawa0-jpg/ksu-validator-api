@@ -23,10 +23,11 @@ if($studentId===''||$schoolYear===''||$term===''||$termCode===''||$selectedSecti
 $pdo=db();
 $pdo->beginTransaction();
 try {
-    $studentStmt=$pdo->prepare('SELECT program, year_level FROM users WHERE id=? AND role="student" LIMIT 1');
+    $studentStmt=$pdo->prepare('SELECT program, year_level, enrollment_type FROM users WHERE id=? AND role="student" LIMIT 1');
     $studentStmt->execute([$studentId]); $student=$studentStmt->fetch();
     if(!$student||!$student['program']) error_response('Student program not found.',400);
     $program=$student['program']; $yearLevel=(int)$student['year_level'];
+    $enrollmentType=(string)($student['enrollment_type'] ?? 'regular');
 
     $termStmt=$pdo->prepare('SELECT term_code, school_year, term_name, semester FROM academic_terms WHERE term_code=? AND is_current=1 LIMIT 1');
     $termStmt->execute([$termCode]); $currentTerm=$termStmt->fetch();
@@ -49,7 +50,10 @@ try {
     $capacityOfferingStmt=$pdo->prepare('SELECT capacity FROM subject_capacities WHERE subject_id=? LIMIT 1');
     $insertStmt=$pdo->prepare('INSERT INTO request_subjects (request_id,sub_code,subject_id,local_check,status) VALUES (?,?,?,?,"pending")');
 
+    // KSU subject-load limit: 26 units for the student submission.
+    $totalUnits = 0.0;
     $seen=[];
+    $nstpTracks=[];
     foreach($subjects as $sub) {
         $subjectId=(int)($sub['subjectId']??0);
         if($subjectId<=0 || isset($seen[$subjectId])) { $pdo->rollBack(); error_response('Each selected subject must include a unique subjectId.',400); }
@@ -58,6 +62,17 @@ try {
         $subjectStmt->execute([$subjectId,(int)$currentTerm['semester'],$termCode]);
         $offering=$subjectStmt->fetch();
         if(!$offering){$pdo->rollBack();error_response('One or more selected subjects is not offered in the current semester.',400);}
+
+        $totalUnits += (float)$offering['units'];
+        if($totalUnits > 26.0) {
+            $pdo->rollBack();
+            error_response('Your selected subjects exceed the maximum 26-unit load.',409);
+        }
+
+        $nstpCode=strtoupper(str_replace(' ', '', trim((string)$offering['sub_code'])));
+        if(in_array($nstpCode, ['NSTP11','NSTP11-A','NSTP12-A','NSTP12-B'], true)) {
+            $nstpTracks[]=$nstpCode;
+        }
 
         // Normal subjects must belong to the student's home program/year/section.
         // Cross-level and cross-program subjects are allowed through the search
@@ -92,6 +107,36 @@ try {
 
         $insertStmt->execute([$requestId,$offering['sub_code'],$subjectId,$sub['localCheck']??'eligible']);
     }
+
+    // NSTP is a track: ROTC (NSTP 11 -> NSTP 12-B) OR CWTS
+    // (NSTP 11-A -> NSTP 12-A). Never allow both first-semester tracks,
+    // nor a second-semester continuation from the wrong track.
+    $nstpTracks=array_values(array_unique($nstpTracks));
+    if(in_array('NSTP11', $nstpTracks, true) && in_array('NSTP11-A', $nstpTracks, true)) {
+        $pdo->rollBack();
+        error_response('Choose only one NSTP 11 track: NSTP 11 (ROTC) or NSTP 11-A (CWTS).',409);
+    }
+    if(in_array('NSTP12-A', $nstpTracks, true) && in_array('NSTP12-B', $nstpTracks, true)) {
+        $pdo->rollBack();
+        error_response('Choose only one NSTP 12 continuation track.',409);
+    }
+
+    // If the student has already passed NSTP 11, the CWTS continuation
+    // NSTP 12-A is the correct track; if NSTP 11-A was passed, NSTP 12-B
+    // is not valid. This prevents bypassing the track rule through manual
+    // API requests.
+    $nstpHistoryStmt=$pdo->prepare('SELECT sub_code FROM academic_records WHERE student_id=? AND passed=1 AND sub_code IN ("NSTP 11","NSTP 11-A")');
+    $nstpHistoryStmt->execute([$studentId]);
+    $passedNstp=array_map(fn($r)=>strtoupper(str_replace(' ', '', trim((string)$r['sub_code']))), $nstpHistoryStmt->fetchAll());
+    if(in_array('NSTP11', $passedNstp, true) && in_array('NSTP12-A', $nstpTracks, true)) {
+        $pdo->rollBack();
+        error_response('NSTP 12-A (CWTS) requires the NSTP 11-A track.',409);
+    }
+    if(in_array('NSTP11-A', $passedNstp, true) && in_array('NSTP12-B', $nstpTracks, true)) {
+        $pdo->rollBack();
+        error_response('NSTP 12-B (ROTC) requires the NSTP 11 track.',409);
+    }
+
     $pdo->commit();
 } catch(Throwable $e) {
     if($pdo->inTransaction())$pdo->rollBack(); error_log('Enrollment submission failed: '.$e->getMessage()); error_response('Failed to save submission.',500);
