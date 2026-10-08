@@ -48,6 +48,14 @@ try {
     $gradeStmt=$pdo->prepare('SELECT grade, passed FROM academic_records WHERE student_id=? AND sub_code=? ORDER BY id DESC LIMIT 1');
     $countOfferingStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id WHERE er.term_code=? AND rs.subject_id=? AND rs.status<>"rejected"');
     $capacityOfferingStmt=$pdo->prepare('SELECT capacity FROM subject_capacities WHERE subject_id=? LIMIT 1');
+
+    // Create the parent enrollment request before its request_subjects rows.
+    // request_subjects.request_id references enrollment_requests.id, so omitting
+    // this insert causes the submission transaction to fail with a foreign-key
+    // error and the app only sees "Failed to save submission."
+    $insertRequestStmt=$pdo->prepare('INSERT INTO enrollment_requests (id,student_id,school_year,term,term_code,selected_section,type,submitted_at) VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)');
+    $insertRequestStmt->execute([$requestId,$studentId,$schoolYear,$term,$termCode,$selectedSection,$type]);
+
     $insertStmt=$pdo->prepare('INSERT INTO request_subjects (request_id,sub_code,subject_id,local_check,status) VALUES (?,?,?,?,"pending")');
 
     // KSU subject-load limit: 26 units for the student submission.
