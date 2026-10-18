@@ -27,7 +27,13 @@ try {
     $studentStmt->execute([$studentId]); $student=$studentStmt->fetch();
     if(!$student||!$student['program']) error_response('Student program not found.',400);
     $program=$student['program']; $yearLevel=(int)$student['year_level'];
-    $enrollmentType=(string)($student['enrollment_type'] ?? 'regular');
+    $enrollmentType=strtolower((string)($student['enrollment_type'] ?? 'regular'));
+    $probationTermStmt=$pdo->prepare('SELECT term_code FROM academic_records WHERE student_id=? AND term_code IS NOT NULL GROUP BY term_code ORDER BY MAX(id) DESC LIMIT 1');
+    $probationTermStmt->execute([$studentId]); $probationTerm=$probationTermStmt->fetchColumn();
+    $probationCountStmt=$pdo->prepare('SELECT COUNT(*) AS total, SUM(CASE WHEN passed=0 THEN 1 ELSE 0 END) AS failed FROM academic_records WHERE student_id=? AND term_code=?');
+    $probationCountStmt->execute([$studentId,$probationTerm ?: '']); $pc=$probationCountStmt->fetch() ?: ['total'=>0,'failed'=>0];
+    $probationTotal=(int)($pc['total']??0); $probationFailed=(int)($pc['failed']??0);
+    $isOnProbation=$probationTotal>0 && ($probationFailed/$probationTotal)>=0.5;
 
     $termStmt=$pdo->prepare('SELECT term_code, school_year, term_name, semester FROM academic_terms WHERE term_code=? AND is_current=1 LIMIT 1');
     $termStmt->execute([$termCode]); $currentTerm=$termStmt->fetch();
@@ -42,8 +48,16 @@ try {
     $sectionCheck=$pdo->prepare('SELECT COUNT(*) AS c FROM subjects WHERE program_code=? AND year_level=? AND semester=? AND term_code=? AND section=?');
     $sectionCheck->execute([$program,$yearLevel,(int)$currentTerm['semester'],$termCode,$selectedSection]);
     if((int)$sectionCheck->fetch()['c']===0) { $pdo->rollBack(); error_response('Selected section is not available for your program, year level, and current semester.',400); }
+    $sectionCapacityStmt=$pdo->prepare('SELECT capacity FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=? LIMIT 1');
+    $sectionCapacityStmt->execute([$termCode,$program,$yearLevel,$selectedSection]);
+    $sectionCapRow=$sectionCapacityStmt->fetch();
+    $sectionCapacity=$sectionCapRow ? (int)$sectionCapRow['capacity'] : 40;
+    $sectionCountStmt=$pdo->prepare('SELECT COUNT(*) FROM enrollment_requests er JOIN users u ON u.id=er.student_id WHERE er.term_code=? AND er.selected_section=? AND u.program=? AND u.year_level=?');
+    $sectionCountStmt->execute([$termCode,$selectedSection,$program,$yearLevel]);
+    if((int)$sectionCountStmt->fetchColumn() >= $sectionCapacity) { $pdo->rollBack(); error_response('Your selected physical section is full. Choose another available section or contact your chairperson.',409); }
 
     $subjectStmt=$pdo->prepare('SELECT * FROM subjects WHERE subject_id=? AND semester=? AND term_code=? LIMIT 1');
+    $homeEquivalentStmt=$pdo->prepare('SELECT COUNT(*) FROM curriculum_subjects WHERE program_code=? AND LOWER(TRIM(description))=LOWER(TRIM(?)) AND units=? AND is_active=1');
     $prereqStmt=$pdo->prepare('SELECT p.sub_code FROM subject_prerequisites sp JOIN subjects p ON p.subject_id=sp.prereq_subject_id WHERE sp.subject_id=? ORDER BY p.sub_code,p.subject_id');
     $gradeStmt=$pdo->prepare('SELECT grade, passed FROM academic_records WHERE student_id=? AND sub_code=? ORDER BY id DESC LIMIT 1');
     $countOfferingStmt=$pdo->prepare('SELECT COUNT(DISTINCT er.id) AS enrolled FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id WHERE er.term_code=? AND rs.subject_id=? AND rs.status<>"rejected"');
@@ -58,8 +72,8 @@ try {
 
     $insertStmt=$pdo->prepare('INSERT INTO request_subjects (request_id,sub_code,subject_id,local_check,status) VALUES (?,?,?,?,"pending")');
 
-    // KSU subject-load limit: 26 units for the student submission.
-    $totalUnits = 0.0;
+    // KSU regular-term cap is 26; probation is capped at 15. Summer/special terms use separate major/minor caps.
+    $totalUnits = 0.0; $majorUnits=0.0; $minorUnits=0.0;
     $seen=[];
     $nstpTracks=[];
     foreach($subjects as $sub) {
@@ -71,11 +85,15 @@ try {
         $offering=$subjectStmt->fetch();
         if(!$offering){$pdo->rollBack();error_response('One or more selected subjects is not offered in the current semester.',400);}
 
-        $totalUnits += (float)$offering['units'];
-        if($totalUnits > 26.0) {
-            $pdo->rollBack();
-            error_response('Your selected subjects exceed the maximum 26-unit load.',409);
+        $units=(float)$offering['units']; $totalUnits += $units;
+        $category=strtolower((string)($offering['subject_category'] ?? 'major'));
+        if((int)$currentTerm['semester']===3){
+            if($category==='minor') $minorUnits += $units; else $majorUnits += $units;
+            if($majorUnits>6.0){$pdo->rollBack();error_response('Summer/special-term major subjects are limited to 6 units total.',409);}
+            if($minorUnits>9.0){$pdo->rollBack();error_response('Summer/special-term minor subjects are limited to 9 units total.',409);}
         }
+        $maxUnits=$isOnProbation?15.0:26.0;
+        if($totalUnits>$maxUnits){$pdo->rollBack();error_response($isOnProbation?'Academic probation limits your enrollment load to 15 units.':'Your selected subjects exceed the maximum 26-unit load.',409);}
 
         $nstpCode=strtoupper(str_replace(' ', '', trim((string)$offering['sub_code'])));
         if(in_array($nstpCode, ['NSTP11','NSTP11-A','NSTP12-A','NSTP12-B'], true)) {
@@ -87,7 +105,16 @@ try {
         // flow, but they must still be current-semester offerings.
         $isHomeOffering = $offering['program_code'] === $program;
         if($isHomeOffering && ((int)$offering['year_level'] !== $yearLevel || trim($offering['section']) !== $selectedSection)) {
-            $pdo->rollBack(); error_response('A home-program subject must belong to your current year level and selected section.',400);
+            $isIrregular=in_array($enrollmentType,['irregular','transferee','shifter','returnee','crossenroll','cross_enroll'],true);
+            if(!$isIrregular || (int)$offering['year_level'] >= $yearLevel){
+                $pdo->rollBack(); error_response('Regular students must select subjects in their current year/section. Irregular students may select unpassed lower-year back subjects.',400);
+            }
+        }
+        if(!$isHomeOffering){
+            $homeEquivalentStmt->execute([$program,$offering['description'],$units]);
+            if((int)$homeEquivalentStmt->fetchColumn()===0){
+                $pdo->rollBack(); error_response('Cross-department enrollment is allowed only for an equivalent home-curriculum subject with matching description and sufficient units.',409);
+            }
         }
 
         $prereqStmt->execute([$subjectId]);

@@ -71,6 +71,7 @@ $subjectsOut = array_map(function ($s) use ($prereqStmt) {
         'instructor' => $s['instructor'],
         'prerequisites' => $prereqs,
         'exclusive' => (bool)$s['is_exclusive'],
+        'subjectCategory' => $s['subject_category'] ?? 'major',
         'yearLevel' => (int)$s['year_level'],
         'semester' => (int)$s['semester'],
     ];

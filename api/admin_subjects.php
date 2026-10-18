@@ -27,6 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $subCode = trim((string)$body['subCode']);
     $yearLevel = (int)$body['yearLevel'];
     $semester = (int)$body['semester'];
+    $subjectCategory = strtolower(trim((string)($body['subjectCategory'] ?? 'major')));
+    if (!in_array($subjectCategory, ['major','minor'], true)) error_response('Subject category must be major or minor.');
 
     if ($yearLevel < 1 || $yearLevel > 5 || !in_array($semester, [1, 2, 3], true)) {
         error_response('Invalid year level or semester.');
@@ -68,12 +70,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('UPDATE subjects SET
                 curriculum_subject_id=?, term_code=?, sub_code=?, sched_code=?, description=?, units=?,
-                schedule=?, section=?, instructor=?, is_exclusive=?, year_level=?, semester=?
+                schedule=?, section=?, instructor=?, is_exclusive=?, year_level=?, semester=?, subject_category=?
                 WHERE subject_id=? AND program_code=?');
             $stmt->execute([
                 $curriculumSubjectId, $termCode, $subCode, $body['schedCode'], $body['description'], $body['units'],
                 $body['schedule'], $body['section'], $body['instructor'], !empty($body['exclusive']) ? 1 : 0,
-                $yearLevel, $semester, $subjectId, $programCode,
+                $yearLevel, $semester, $subjectCategory, $subjectId, $programCode,
             ]);
         } else {
             // If this is another section of an existing curriculum subject,
@@ -93,12 +95,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('INSERT INTO subjects
                 (curriculum_subject_id, term_code, sub_code, program_code, sched_code, description, units,
-                 schedule, section, instructor, is_exclusive, year_level, semester)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                 schedule, section, instructor, is_exclusive, year_level, semester, subject_category)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $curriculumSubjectId, $termCode, $subCode, $programCode, $body['schedCode'], $body['description'], $body['units'],
                 $body['schedule'], $body['section'], $body['instructor'], !empty($body['exclusive']) ? 1 : 0,
-                $yearLevel, $semester,
+                $yearLevel, $semester, $subjectCategory,
             ]);
             $subjectId = (int)$pdo->lastInsertId();
         }
