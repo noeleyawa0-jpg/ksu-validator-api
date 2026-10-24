@@ -25,7 +25,7 @@ function account_mailer(): PHPMailer {
     $mail->SMTPSecure = $encryption === 'ssl' ? PHPMailer::ENCRYPTION_SMTPS : PHPMailer::ENCRYPTION_STARTTLS;
     $mail->Port = (int)(getenv('SMTP_PORT') ?: ($encryption === 'ssl' ? 465 : 587));
     $mail->Timeout = 10;
-    $mail->Timelimit = 10;
+    $mail->getSMTPInstance()->Timelimit = 10;
     $mail->SMTPDebug = 0;
     $mail->CharSet = 'UTF-8';
     $mail->setFrom($from, (string)(getenv('SMTP_FROM_NAME') ?: 'KSU Subject Validator'));
