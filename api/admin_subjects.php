@@ -14,12 +14,17 @@ $pdo = db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $body = json_body();
-    $required = ['subCode', 'programCode', 'schedCode', 'description', 'units',
-                 'schedule', 'section', 'instructor', 'yearLevel', 'semester'];
+    $required = ['subCode', 'programCode', 'description', 'units',
+                 'section', 'yearLevel', 'semester'];
     foreach ($required as $field) {
         if (!isset($body[$field]) || $body[$field] === '') error_response("Missing field: $field");
     }
 
+    // Retain legacy storage columns for existing clients and records. They no
+    // longer participate in academic validation or appear in the editor.
+    $body['schedCode'] = $body['schedCode'] ?? 'Not applicable';
+    $body['schedule'] = $body['schedule'] ?? 'Not applicable';
+    $body['instructor'] = $body['instructor'] ?? 'Not applicable';
     $subjectId = isset($body['subjectId']) && $body['subjectId'] !== '' ? (int)$body['subjectId'] : null;
     $curriculumSubjectId = isset($body['curriculumSubjectId']) && $body['curriculumSubjectId'] !== ''
         ? (int)$body['curriculumSubjectId'] : null;

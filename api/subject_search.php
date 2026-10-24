@@ -91,6 +91,7 @@ foreach ($rows as $s) {
             'prerequisites'=>array_column($prereqs,'sub_code'),
             'exclusive'=>(bool)$s['is_exclusive'], 'yearLevel'=>(int)$s['year_level'],
             'semester'=>(int)$s['semester'],
+            'subjectCategory'=>$s['subject_category'] ?? 'major',
         ],
         'programName'=>$s['program_name'] ?? $s['program_code'],
         'available'=>(int)$available, 'capacity'=>(int)$capacity, 'enrolled'=>(int)$enrolled,

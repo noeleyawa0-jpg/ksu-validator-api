@@ -5,6 +5,7 @@
 // POST {action:"shift_in", studentId, yearLevel, yearSection, notes} moves an existing student in.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/account_email.php';
 
 $session = current_session();
 if (!$session || ($session['role'] ?? '') !== 'chairperson') error_response('Unauthorized', 401);
@@ -44,6 +45,7 @@ if ($action === 'register') {
     $firstName = trim((string)($body['firstName'] ?? ''));
     $lastName = trim((string)($body['lastName'] ?? ''));
     $email = trim((string)($body['email'] ?? ''));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) error_response('A valid student email address is required.');
     $yearLevel = filter_var($body['yearLevel'] ?? null, FILTER_VALIDATE_INT);
     $yearSection = trim((string)($body['yearSection'] ?? ''));
     $enrollmentType = strtolower(trim((string)($body['enrollmentType'] ?? 'freshman')));
@@ -55,11 +57,25 @@ if ($action === 'register') {
     $exists = $pdo->prepare('SELECT id FROM users WHERE id=? LIMIT 1');
     $exists->execute([$id]);
     if ($exists->fetch()) error_response('An account with this student ID already exists.', 409);
+    try {
+        $mail = prepare_account_email($email, "$firstName $lastName", $id, $password);
+    } catch (Throwable $e) {
+        error_response('Email delivery is not configured. Ask the administrator to configure the email sender before creating accounts.', 503);
+    }
     $hash = password_hash($password, PASSWORD_BCRYPT);
+    $pdo->beginTransaction();
+    try {
     $insert = $pdo->prepare('INSERT INTO users (id,password_hash,role,first_name,last_name,email,department,program,year_level,year_section,enrollment_type) VALUES (?,?,"student",?,?,?,"CEIT",?,?,?,?)');
     // Current table has 11 columns in this insert: id/hash/name/email/program/year/section/type.
     $insert->execute([$id, $hash, $firstName, $lastName, $email ?: "$id@ksu.edu.ph", $program, $yearLevel, $yearSection, $enrollmentType]);
-    respond(['status' => 'ok', 'studentId' => $id, 'program' => $program], 201);
+        $mail->send();
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Chair student creation or credential email failed.');
+        error_response('Unable to create the account and email its login details. The account was not created; check the email sender and try again.', 502);
+    }
+    respond(['status' => 'ok', 'studentId' => $id, 'program' => $program, 'emailStatus' => 'sent', 'message' => 'Account created. Login details were sent to ' . $email . '.'], 201);
 }
 
 if ($action === 'shift_in') {

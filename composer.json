@@ -1,0 +1,13 @@
+{
+  "name": "ksu/subject-validator-api",
+  "description": "KSU subject validation API and student credential email delivery",
+  "type": "project",
+  "require": {
+    "php": "^8.2",
+    "phpmailer/phpmailer": "^7.0"
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": false
+  }
+}

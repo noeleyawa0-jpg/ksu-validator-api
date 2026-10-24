@@ -21,6 +21,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/account_email.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     error_response('Method not allowed', 405);
@@ -44,6 +45,8 @@ $enrollmentType = $body['enrollmentType'] ?? null;
 if ($id === '' || $password === '' || $firstName === '' || $lastName === '') {
     error_response('id, password, firstName, and lastName are required.');
 }
+if (!filter_var($email, FILTER_VALIDATE_EMAIL)) error_response('A valid student email address is required.');
+if (strlen($password) < 8) error_response('Use a password of at least 8 characters.');
 if (!in_array($role, ['student', 'chairperson'], true)) {
     error_response('role must be "student" or "chairperson".');
 }
@@ -57,7 +60,16 @@ if ($existing->fetch()) {
     error_response('An account with this ID already exists.', 409);
 }
 
+try {
+    $mail = prepare_account_email($email, "$firstName $lastName", $id, $password, $role);
+} catch (Throwable $e) {
+    error_response('Email delivery is not configured. Ask the administrator to configure the email sender before creating accounts.', 503);
+}
+
 $hash = password_hash($password, PASSWORD_BCRYPT);
+$pdo = db();
+$pdo->beginTransaction();
+try {
 
 $stmt = db()->prepare('
     INSERT INTO users (id, password_hash, role, first_name, last_name, email,
@@ -68,5 +80,12 @@ $stmt->execute([
     $id, $hash, $role, $firstName, $lastName, $email ?: "$id@ksu.edu.ph",
     $program, $yearLevel, $yearSection, $enrollmentType,
 ]);
+    $mail->send();
+    $pdo->commit();
+} catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    error_log('Account creation or credential email failed.');
+    error_response('Unable to create the account and email its login details. The account was not created; check the email sender and try again.', 502);
+}
 
-respond(['status' => 'ok', 'id' => $id], 201);
+respond(['status' => 'ok', 'id' => $id, 'emailStatus' => 'sent', 'message' => 'Account created. Login details were sent to ' . $email . '.'], 201);
