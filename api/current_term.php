@@ -2,6 +2,7 @@
 // GET /api/current_term.php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/academic_term_helpers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') error_response('Method not allowed', 405);
 if (!current_session()) error_response('Unauthorized', 401);
@@ -14,7 +15,7 @@ if (!$term) error_response('No current academic term has been configured by the 
 respond([
     'termCode' => $term['term_code'],
     'schoolYear' => $term['school_year'],
-    'term' => $term['term_name'],
+    'term' => academic_term_name((int)$term['semester']),
     'semester' => (int)$term['semester'],
     'isCurrent' => (bool)$term['is_current'],
     'startDate' => $term['start_date'],

@@ -2,6 +2,7 @@
 // api/enrollment_submit.php -> POST /api/enrollment_submit.php
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/academic_term_helpers.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') error_response('Method not allowed', 405);
 $session=current_session();
@@ -38,7 +39,7 @@ try {
     $termStmt=$pdo->prepare('SELECT term_code, school_year, term_name, semester FROM academic_terms WHERE term_code=? AND is_current=1 LIMIT 1');
     $termStmt->execute([$termCode]); $currentTerm=$termStmt->fetch();
     if(!$currentTerm) { $pdo->rollBack(); error_response('The selected academic term is no longer current. Refresh the app and try again.',409); }
-    if($currentTerm['school_year']!==$schoolYear || $currentTerm['term_name']!==$term) { $pdo->rollBack(); error_response('Academic term information is out of date. Refresh the app.',409); }
+    if($currentTerm['school_year']!==$schoolYear || academic_term_name((int)$currentTerm['semester'])!==$term) { $pdo->rollBack(); error_response('Academic term information is out of date. Refresh the app.',409); }
 
     $existingStmt=$pdo->prepare('SELECT id FROM enrollment_requests WHERE student_id=? AND term_code=? ORDER BY submitted_at ASC LIMIT 1 FOR UPDATE');
     $existingStmt->execute([$studentId,$termCode]);

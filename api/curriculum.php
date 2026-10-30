@@ -32,10 +32,18 @@ $curriculum = $curStmt->fetch();
 if (!$curriculum) error_response('Curriculum not found.', 404);
 
 $requestedTerm = trim($_GET['termCode'] ?? '');
-$termStmt = $pdo->query('SELECT term_code FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1');
-$currentTerm = $termStmt->fetchColumn();
+$termStmt = $pdo->query('SELECT term_code, semester FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1');
+$activeTerm = $termStmt->fetch();
+$currentTerm = $activeTerm['term_code'] ?? null;
 if (!$currentTerm) error_response('No current academic term is configured.', 409);
 $termCode = $requestedTerm !== '' ? $requestedTerm : $currentTerm;
+if (($session['role'] ?? '') === 'student') {
+    // Students can only browse enrollable offerings for the active semester.
+    $termCode = $currentTerm;
+    $semesterFilter = (int)$activeTerm['semester'];
+} elseif ($requestedTerm === '' && $semesterFilter === 0) {
+    $semesterFilter = (int)$activeTerm['semester'];
+}
 
 $sql = 'SELECT * FROM subjects WHERE program_code = ? AND term_code = ?';
 $params = [$programCode, $termCode];

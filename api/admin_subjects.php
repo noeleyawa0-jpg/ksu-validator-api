@@ -39,9 +39,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         error_response('Invalid year level or semester.');
     }
 
-    $termStmt = $pdo->query('SELECT term_code FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1');
-    $currentTerm = $termStmt->fetchColumn();
+    $termStmt = $pdo->query('SELECT term_code,semester FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1');
+    $activeTerm = $termStmt->fetch();
+    $currentTerm = $activeTerm['term_code'] ?? null;
     if (!$currentTerm) error_response('No current academic term is configured.', 409);
+    if ($semester !== (int)$activeTerm['semester']) error_response('Subject semester must match the current academic term.', 409);
 
     $termCode = trim((string)($body['termCode'] ?? $currentTerm));
     if ($termCode !== $currentTerm) error_response('Subjects can only be created or edited for the current academic term.', 409);
@@ -53,6 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $check->execute([$subjectId, $programCode]);
             $existing = $check->fetch();
             if (!$existing) error_response('Subject offering not found for this program.', 404);
+            if ($existing['term_code'] !== $currentTerm) error_response('Historical offerings cannot be moved to the current term.', 409);
 
             $curriculumSubjectId = $curriculumSubjectId ?: (int)($existing['curriculum_subject_id'] ?? 0);
             if ($curriculumSubjectId <= 0) {
@@ -150,10 +153,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     $program = trim((string)($_GET['program'] ?? ''));
     if ($subjectId <= 0 || $program === '') error_response('subjectId and program are required.');
 
-    $stmt = $pdo->prepare('SELECT curriculum_subject_id, section FROM subjects WHERE subject_id=? AND program_code=? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT curriculum_subject_id, section, term_code FROM subjects WHERE subject_id=? AND program_code=? LIMIT 1');
     $stmt->execute([$subjectId, $program]);
     $row = $stmt->fetch();
     if (!$row) error_response('Subject offering not found.', 404);
+    $currentTerm = $pdo->query('SELECT term_code FROM academic_terms WHERE is_current=1 ORDER BY term_code DESC LIMIT 1')->fetchColumn();
+    if ($row['term_code'] !== $currentTerm) error_response('Historical term offerings cannot be deleted.', 409);
 
     $pdo->beginTransaction();
     try {

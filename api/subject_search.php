@@ -58,7 +58,7 @@ foreach ($rows as $s) {
     if ($eligible) {
         foreach ($prereqs as $p) {
             $gradeStmt->execute([$student['id'],$p['sub_code']]);
-            $g=$gradeStmt->fetch();
+            $g=$gradeStmt->fetch() ?: null;
             if (search_prereq_status($g) !== 'qualified') {
                 $eligible=false;
                 $reason='Missing or incomplete prerequisite: '.$p['sub_code'].'.';
