@@ -40,6 +40,13 @@ $stmt = $pdo->prepare('
     WHERE request_id = ? AND subject_id = ?
 ');
 $stmt->execute([$status, $remarks, $override ? 1 : 0, $requestId, $subjectId]);
-if ($stmt->rowCount() === 0) error_response('No matching request/subject found.', 404);
+if ($stmt->rowCount() === 0) {
+    // MySQL reports zero changed rows when a retry repeats the same decision.
+    // An existing identical decision is a successful idempotent request.
+    $verify=$pdo->prepare('SELECT status,chair_remarks,override_applied FROM request_subjects WHERE request_id=? AND subject_id=?');
+    $verify->execute([$requestId,$subjectId]);$saved=$verify->fetch();
+    if (!$saved) error_response('No matching request/subject found.',404);
+    if ($saved['status']!==$status || $saved['chair_remarks']!==$remarks || (bool)$saved['override_applied']!==$override) error_response('The decision changed while saving. Refresh the queue and try again.',409);
+}
 
 respond(['status' => 'ok']);
