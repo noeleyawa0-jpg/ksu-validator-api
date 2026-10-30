@@ -104,6 +104,8 @@ with tempfile.TemporaryDirectory(prefix='ksu-term-http-') as tmp:
                         source=next(s for s in expected if s['subCode']==item['subCode'] and s['section']==item['section'] and s['yearLevel']==item['yearLevel'])
                         assert sorted(item['prerequisites'])==sorted(source['prerequisites']),(program,item['subCode'],'prerequisites changed')
                 if program=='BSIT' and sem==2:assert c['subjects']
+                capacities=req(f'subject_capacity.php?program={program}&yearLevel=1&termCode={code}')
+                assert all(row['semester']==sem for row in capacities)
             assert set_term(code)['offeringsCreated']==0, 'Repeated save duplicated offerings'
             # Even a request for the wrong semester/old term remains restricted for students.
             c=req('curriculum.php?program=BSIT&termCode=26-1&semester='+str(1 if sem!=1 else 2),role='student')

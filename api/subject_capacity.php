@@ -15,14 +15,19 @@ if($_SERVER['REQUEST_METHOD']==='GET'){
     if($program===''||$year<1||$year>4||$term==='') error_response('program, yearLevel, and termCode are required.');
     if(($session['role']??'')==='chairperson' && ($session['program']??'')!==$program) error_response('Program access denied.',403);
 
+    $termStmt=$pdo->prepare('SELECT semester FROM academic_terms WHERE term_code=? LIMIT 1');
+    $termStmt->execute([$term]);
+    $semester=$termStmt->fetchColumn();
+    if(!$semester) error_response('Academic term not found.',404);
+
     $stmt=$pdo->prepare('SELECT s.subject_id,s.sub_code,s.description,s.section,s.semester,s.program_code,s.year_level,
         COALESCE(sc.capacity,40) AS capacity,
         (SELECT COUNT(DISTINCT er.id) FROM enrollment_requests er JOIN request_subjects rs ON rs.request_id=er.id
          WHERE er.term_code=? AND rs.subject_id=s.subject_id AND rs.status<>"rejected") AS enrolled
         FROM subjects s LEFT JOIN subject_capacities sc ON sc.subject_id=s.subject_id
-        WHERE s.term_code=? AND s.program_code=? AND s.year_level=?
+        WHERE s.term_code=? AND s.program_code=? AND s.year_level=? AND s.semester=?
         ORDER BY s.semester,s.section,s.sub_code,s.subject_id');
-    $stmt->execute([$term,$term,$program,$year]);
+    $stmt->execute([$term,$term,$program,$year,(int)$semester]);
     $out=[];
     foreach($stmt->fetchAll() as $r){
         $cap=(int)$r['capacity']; $en=(int)$r['enrolled'];
