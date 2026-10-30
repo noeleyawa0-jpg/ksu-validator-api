@@ -48,15 +48,7 @@ function prepare_term_offerings(PDO $pdo, string $termCode, int $semester): int 
         ORDER BY t.school_year DESC, s.term_code DESC, s.subject_id DESC');
     $stmt->execute([$semester, $termCode]);
     $sources = $stmt->fetchAll();
-    $insert = $pdo->prepare('INSERT INTO subjects
-        (curriculum_subject_id,term_code,sub_code,program_code,sched_code,description,units,schedule,section,instructor,is_exclusive,year_level,semester,subject_category)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
-    $prereqs = $pdo->prepare('INSERT INTO subject_prerequisites (subject_id,prereq_subject_id,sub_code,prereq_sub_code)
-        SELECT ?,prereq_subject_id,?,prereq_sub_code FROM subject_prerequisites WHERE subject_id=?');
-    $capacity = $pdo->prepare('INSERT INTO subject_capacities (subject_id,term_code,capacity) VALUES (?,?,40)');
-    $sectionCapacity = $pdo->prepare('INSERT INTO section_capacities (term_code,program_code,year_level,section,capacity)
-        SELECT ?,?,?,?,40 WHERE NOT EXISTS (SELECT 1 FROM section_capacities WHERE term_code=? AND program_code=? AND year_level=? AND section=?)');
-    $created = 0;
+    $copies = [];
     $sourceTerms = [];
     foreach ($sources as $source) {
         // Use the latest prior list for each program, rather than merging every
@@ -67,20 +59,43 @@ function prepare_term_offerings(PDO $pdo, string $termCode, int $semester): int 
         if ($source['term_code'] !== $sourceTerms[$program]) continue;
         $key = offering_key($source);
         if (isset($existing[$key])) continue;
-        $insert->execute([
-            $source['curriculum_subject_id'], $termCode, $source['sub_code'], $source['program_code'],
-            'Not applicable', $source['description'], $source['units'], 'Not applicable', $source['section'],
-            'Not applicable', $source['is_exclusive'], $source['year_level'], $semester, $source['subject_category'] ?? 'major',
-        ]);
-        $id = (int)$pdo->lastInsertId();
-        $prereqs->execute([$id, $source['sub_code'], $source['subject_id']]);
-        $capacity->execute([$id, $termCode]);
-        $section = [$termCode, $source['program_code'], $source['year_level'], $source['section']];
-        $sectionCapacity->execute(array_merge($section, $section));
+        $copies[$key] = $source;
         $existing[$key] = true;
-        $created++;
+    }
+    if ($copies) {
+        // Use set-based writes: hundreds of offerings must fit within the app's
+        // HTTP timeout, and TiDB IDs are not assumed to be consecutive.
+        $sourceIds = array_column(array_values($copies), 'subject_id');
+        $marks = implode(',', array_fill(0, count($sourceIds), '?'));
+        $insert = $pdo->prepare("INSERT INTO subjects
+            (curriculum_subject_id,term_code,sub_code,program_code,sched_code,description,units,schedule,section,instructor,is_exclusive,year_level,semester,subject_category)
+            SELECT curriculum_subject_id,?,sub_code,program_code,'Not applicable',description,units,'Not applicable',section,'Not applicable',is_exclusive,year_level,semester,subject_category
+            FROM subjects WHERE subject_id IN ($marks)");
+        $insert->execute(array_merge([$termCode], $sourceIds));
+        $find = $pdo->prepare('SELECT * FROM subjects WHERE term_code=?');
+        $find->execute([$termCode]);
+        $ids = []; $maps = []; $params = [];
+        foreach ($find->fetchAll() as $row) {
+            $key = offering_key($row);
+            if (!isset($copies[$key])) continue;
+            $ids[] = (int)$row['subject_id'];
+            $maps[] = 'SELECT ? AS target_id, ? AS source_id, ? AS sub_code';
+            array_push($params, $row['subject_id'], $copies[$key]['subject_id'], $row['sub_code']);
+        }
+        if (count($ids) !== count($copies)) throw new RuntimeException('Offering copy verification failed.');
+        $mapping = implode(' UNION ALL ', $maps);
+        $pdo->prepare("INSERT INTO subject_prerequisites (subject_id,prereq_subject_id,sub_code,prereq_sub_code)
+            SELECT m.target_id,sp.prereq_subject_id,m.sub_code,sp.prereq_sub_code
+            FROM ($mapping) m JOIN subject_prerequisites sp ON sp.subject_id=m.source_id")->execute($params);
+        $newMarks = implode(',', array_fill(0, count($ids), '?'));
+        $pdo->prepare("INSERT INTO subject_capacities (subject_id,term_code,capacity)
+            SELECT subject_id,term_code,40 FROM subjects WHERE subject_id IN ($newMarks)")->execute($ids);
+        $pdo->prepare("INSERT INTO section_capacities (term_code,program_code,year_level,section,capacity)
+            SELECT DISTINCT s.term_code,s.program_code,s.year_level,s.section,40 FROM subjects s
+            WHERE s.subject_id IN ($newMarks) AND NOT EXISTS (SELECT 1 FROM section_capacities c
+                WHERE c.term_code=s.term_code AND c.program_code=s.program_code AND c.year_level=s.year_level AND c.section=s.section)")->execute($ids);
     }
     $record = $pdo->prepare('INSERT INTO term_offering_rollovers (term_code,program_code,source_term_code) VALUES (?,?,?)');
     foreach ($sourceTerms as $program => $sourceTerm) $record->execute([$termCode,$program,$sourceTerm]);
-    return $created;
+    return count($copies);
 }
