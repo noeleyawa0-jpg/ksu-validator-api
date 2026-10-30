@@ -40,6 +40,14 @@ function standing_requirements(PDO $pdo, string $program): array {
 
 function standing_progress(array $requirements, array $passedCodes, int $throughYear): array {
     $total = 0; $passed = 0; $counted = []; $credited = []; $present = []; $valid = true;
+    $codeUnits = [];
+    foreach ($requirements as $r) {
+        if ($r['year']>$throughYear) continue;
+        foreach ($r['codes'] as $code => $_) {
+            if (isset($codeUnits[$code]) && $codeUnits[$code]!==$r['unitsTenths']) $valid=false;
+            $codeUnits[$code]=$r['unitsTenths'];
+        }
+    }
     foreach ($requirements as $r) {
         if ($r['year'] > $throughYear) continue;
         if (!$r['valid']) $valid = false;
