@@ -8,6 +8,7 @@
 
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/year_standing.php';
 
 function require_admin_or_chair(): array {
     $session = current_session();
@@ -143,6 +144,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $passed = passed_from_grade($grade) ? 1 : 0;
 
+    $pdo->beginTransaction();
+    try {
+    $pdo->prepare('SELECT id FROM users WHERE id=? FOR UPDATE')->execute([$studentId]);
+
     $existingStmt = $pdo->prepare('SELECT id FROM academic_records WHERE student_id = ? AND sub_code = ? AND school_year_taken = ? AND COALESCE(term_code, "") = ? ORDER BY id DESC LIMIT 1');
     $existingStmt->execute([$studentId, $subCode, $schoolYearTaken, $termCode]);
     $existing = $existingStmt->fetch();
@@ -157,12 +162,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $recordId = (int)$pdo->lastInsertId();
     }
 
+    $standing = refresh_student_standing($pdo,$studentId,(string)$session['sub']);
+    $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Grade/standing update failed: '.$e->getMessage());
+        error_response('Unable to save the grade and synchronize year standing.',500);
+    }
+
     respond([
         'status' => 'ok',
         'id' => $recordId,
         'grade' => $grade,
         'passed' => (bool)$passed,
         'result' => status_from_grade($grade, $passed),
+        'yearLevel' => $standing['yearLevel'],
+        'promoted' => $standing['promoted'],
     ]);
 }
 
