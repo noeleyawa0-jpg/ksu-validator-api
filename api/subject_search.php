@@ -5,6 +5,8 @@
 // changed by this endpoint.
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
+require_once __DIR__ . '/subject_standing.php';
+require_once __DIR__ . '/year_standing.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') error_response('Method not allowed', 405);
 $session = current_session();
@@ -44,10 +46,15 @@ function search_prereq_status(?array $grade): string {
 }
 
 $out=[];
+$standingProgress=null;
 foreach ($rows as $s) {
     $prereqStmt->execute([(int)$s['subject_id']]);
     $prereqs=$prereqStmt->fetchAll();
     $eligible=true; $reason='Eligible';
+    if (required_subject_standing($s)>=3 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$student['id'],$student['program']);
+    if (!subject_standing_allowed($student,$s,$standingProgress)) {
+        $eligible=false; $reason='Requires Year '.required_subject_standing($s).' standing.';
+    }
 
     $gradeStmt->execute([$student['id'],$s['sub_code']]);
     $ownGrade=$gradeStmt->fetch();
@@ -92,6 +99,7 @@ foreach ($rows as $s) {
             'exclusive'=>(bool)$s['is_exclusive'], 'yearLevel'=>(int)$s['year_level'],
             'semester'=>(int)$s['semester'],
             'subjectCategory'=>$s['subject_category'] ?? 'major',
+            'requiredStanding'=>required_subject_standing($s),
         ],
         'programName'=>$s['program_name'] ?? $s['program_code'],
         'available'=>(int)$available, 'capacity'=>(int)$capacity, 'enrolled'=>(int)$enrolled,

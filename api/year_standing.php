@@ -1,5 +1,6 @@
 <?php
-// Unit-based standing approved for Years 3 and 4. No Year-1/2 rule is inferred.
+// Adviser clarification: whole-course units; >51% and <75% is third year,
+// >=75% is fourth year. No Year-1/2 percentage rule is inferred.
 function standing_code(string $code): string {
     return strtoupper(preg_replace('/\s+/', ' ', trim($code)));
 }
@@ -9,7 +10,7 @@ function standing_requirements(PDO $pdo, string $program): array {
     if (!$term) return [];
     $stmt = $pdo->prepare('SELECT s.*,cs.sub_code AS academic_code FROM subjects s
         LEFT JOIN curriculum_subjects cs ON cs.curriculum_subject_id=s.curriculum_subject_id
-        WHERE s.program_code=? AND s.year_level BETWEEN 1 AND 3 AND s.term_code<=?
+        WHERE s.program_code=? AND s.year_level BETWEEN 1 AND 5 AND s.term_code<=?
           AND (cs.is_active=1 OR cs.curriculum_subject_id IS NULL)
         ORDER BY s.term_code DESC,s.subject_id ASC');
     $stmt->execute([$program,$term]);
@@ -38,8 +39,8 @@ function standing_requirements(PDO $pdo, string $program): array {
     return array_values($requirements);
 }
 
-function standing_progress(array $requirements, array $passedCodes, int $throughYear): array {
-    $total = 0; $passed = 0; $counted = []; $credited = []; $present = []; $valid = true;
+function standing_progress(array $requirements, array $passedCodes, int $throughYear, int $targetYear): array {
+    $total = 0; $passed = 0; $counted = []; $credited = []; $requiredCredits = []; $present = []; $valid = true;
     $codeUnits = [];
     foreach ($requirements as $r) {
         if ($r['year']>$throughYear) continue;
@@ -52,7 +53,10 @@ function standing_progress(array $requirements, array $passedCodes, int $through
         if ($r['year'] > $throughYear) continue;
         if (!$r['valid']) $valid = false;
         $present[$r['year'].'|'.$r['semester']] = true;
-        $total += $r['unitsTenths'];
+        if (!isset($requiredCredits[$r['creditKey']])) {
+            $total += $r['unitsTenths'];
+            $requiredCredits[$r['creditKey']] = true;
+        }
         $matched = false;
         foreach ($r['codes'] as $code => $_) {
             if (isset($passedCodes[$code]) && !isset($counted[$code])) $matched = true;
@@ -69,12 +73,16 @@ function standing_progress(array $requirements, array $passedCodes, int $through
         foreach ([1,2] as $semester) if (!isset($present["$year|$semester"])) $complete = false;
     }
     return [
-        'throughYear'=>$throughYear,'thresholdPercent'=>51,
+        'throughYear'=>$throughYear,'basis'=>'wholeCurriculum',
+        'thresholdPercent'=>$targetYear===3 ? 51 : 75,
+        'thresholdInclusive'=>$targetYear===4,
         'totalUnits'=>$total/10,'passedUnits'=>$passed/10,
         'percent'=>$total>0 ? round($passed*100/$total,2) : 0,
         'curriculumComplete'=>$complete && $total>0,
         // Compare integer tenths, never a rounded display percentage.
-        'eligible'=>$complete && $total>0 && $passed*100 >= $total*51,
+        'eligible'=>$complete && $total>0 && ($targetYear===3
+            ? ($passed*100 > $total*51 && $passed*100 < $total*75)
+            : $passed*100 >= $total*75),
     ];
 }
 
@@ -88,7 +96,12 @@ function student_standing_progress(PDO $pdo, string $studentId, string $program)
             $passed[standing_code($grade['sub_code'])] = true;
         }
     }
-    return ['thirdYear'=>standing_progress($requirements,$passed,2),'fourthYear'=>standing_progress($requirements,$passed,3)];
+    // All six CEIT programs have four curriculum years. Never treat a missing
+    // final year as a complete, smaller course. Include a fifth year if present.
+    $throughYear = 4;
+    foreach ($requirements as $r) $throughYear = max($throughYear,$r['year']);
+    return ['thirdYear'=>standing_progress($requirements,$passed,$throughYear,3),
+        'fourthYear'=>standing_progress($requirements,$passed,$throughYear,4)];
 }
 
 function refresh_student_standing(PDO $pdo, string $studentId, string $actor): array {
@@ -101,21 +114,27 @@ function refresh_student_standing(PDO $pdo, string $studentId, string $actor): a
         $year = (int)$student['year_level'];
         $progress = student_standing_progress($pdo,$studentId,$student['program']);
         $target = $year;
-        $rule = $year === 2 ? $progress['thirdYear'] : ($year === 3 ? $progress['fourthYear'] : null);
-        if ($rule && $rule['eligible']) $target++;
+        $rule = null;
+        if ($progress['fourthYear']['curriculumComplete'] && $progress['fourthYear']['eligible']) {
+            $target=4; $rule=$progress['fourthYear'];
+        } elseif ($progress['thirdYear']['curriculumComplete'] && $progress['thirdYear']['eligible']) {
+            $target=3; $rule=$progress['thirdYear'];
+        } elseif ($year>=3 && $progress['thirdYear']['curriculumComplete']) {
+            $target=2; $rule=$progress['thirdYear'];
+        }
         if ($target !== $year) {
             $oldSection = (string)($student['year_section'] ?? '');
             $section = preg_replace('/(?<!\d)'.$year.'(?=[- ]?[A-Z]$)/i',(string)$target,$oldSection);
             $pdo->prepare('UPDATE users SET year_level=?,year_section=? WHERE id=? AND year_level=?')->execute([$target,$section,$studentId,$year]);
-            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' required Year 1–'.$rule['throughYear'].' units passed (at least 51%).';
+            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' whole-curriculum units passed ('.($target===3 ? 'above 51% and below 75%' : ($target===4 ? 'at least 75%' : 'third/fourth-year threshold not met')).').';
             $pdo->prepare('INSERT INTO student_movements
                 (student_id,movement_type,from_program,to_program,from_year_level,to_year_level,from_section,to_section,notes,performed_by,moved_at)
-                VALUES (?,"year_promotion",?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')->execute([
-                    $studentId,$student['program'],$student['program'],$year,$target,$oldSection,$section,$notes,$actor,
+                VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')->execute([
+                    $studentId,$target>$year ? 'year_promotion' : 'year_reclassification',$student['program'],$student['program'],$year,$target,$oldSection,$section,$notes,$actor,
                 ]);
         }
         if ($owns) $pdo->commit();
-        return ['previousYearLevel'=>$year,'yearLevel'=>$target,'promoted'=>$target!==$year,'progress'=>$progress];
+        return ['previousYearLevel'=>$year,'yearLevel'=>$target,'promoted'=>$target>$year,'changed'=>$target!==$year,'progress'=>$progress];
     } catch (Throwable $e) {
         if ($owns && $pdo->inTransaction()) $pdo->rollBack();
         throw $e;

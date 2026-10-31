@@ -27,7 +27,7 @@ if (!$request) respond(null);
 
 $subStmt = $pdo->prepare('
     SELECT rs.*, s.subject_id, s.description, s.units, s.schedule, s.section,
-           s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester
+           s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester, s.required_standing
     FROM request_subjects rs
     JOIN subjects s ON s.subject_id = rs.subject_id
     WHERE rs.request_id = ?
@@ -57,6 +57,7 @@ $selections = array_map(function ($s) use ($prereqStmt) {
             'exclusive' => (bool)$s['is_exclusive'],
             'yearLevel' => (int)$s['year_level'],
             'semester' => (int)$s['semester'],
+            'requiredStanding' => (int)$s['required_standing'],
         ],
         'localCheck' => $s['local_check'],
         'status' => $s['status'],

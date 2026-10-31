@@ -32,6 +32,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $subCode = trim((string)$body['subCode']);
     $yearLevel = (int)$body['yearLevel'];
     $semester = (int)$body['semester'];
+    $requiredStanding = $body['requiredStanding'] ?? null;
+    if ($requiredStanding !== null && (!is_numeric($requiredStanding) || (int)$requiredStanding != $requiredStanding || (int)$requiredStanding < 0 || (int)$requiredStanding > 4)) {
+        error_response('Required standing must be 0 (none), 1, 2, 3, or 4.');
+    }
     $subjectCategory = strtolower(trim((string)($body['subjectCategory'] ?? 'major')));
     if (!in_array($subjectCategory, ['major','minor'], true)) error_response('Subject category must be major or minor.');
 
@@ -56,6 +60,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $existing = $check->fetch();
             if (!$existing) error_response('Subject offering not found for this program.', 404);
             if ($existing['term_code'] !== $currentTerm) error_response('Historical offerings cannot be moved to the current term.', 409);
+            // Older installed clients must not erase the new requirement.
+            $requiredStanding ??= (int)($existing['required_standing'] ?? 0);
 
             $curriculumSubjectId = $curriculumSubjectId ?: (int)($existing['curriculum_subject_id'] ?? 0);
             if ($curriculumSubjectId <= 0) {
@@ -78,12 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('UPDATE subjects SET
                 curriculum_subject_id=?, term_code=?, sub_code=?, sched_code=?, description=?, units=?,
-                schedule=?, section=?, instructor=?, is_exclusive=?, year_level=?, semester=?, subject_category=?
+                schedule=?, section=?, instructor=?, is_exclusive=?, year_level=?, semester=?, subject_category=?, required_standing=?
                 WHERE subject_id=? AND program_code=?');
             $stmt->execute([
                 $curriculumSubjectId, $termCode, $subCode, $body['schedCode'], $body['description'], $body['units'],
                 $body['schedule'], $body['section'], $body['instructor'], !empty($body['exclusive']) ? 1 : 0,
-                $yearLevel, $semester, $subjectCategory, $subjectId, $programCode,
+                $yearLevel, $semester, $subjectCategory, $requiredStanding, $subjectId, $programCode,
             ]);
         } else {
             // If this is another section of an existing curriculum subject,
@@ -103,12 +109,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $stmt = $pdo->prepare('INSERT INTO subjects
                 (curriculum_subject_id, term_code, sub_code, program_code, sched_code, description, units,
-                 schedule, section, instructor, is_exclusive, year_level, semester, subject_category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                 schedule, section, instructor, is_exclusive, year_level, semester, subject_category, required_standing)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
             $stmt->execute([
                 $curriculumSubjectId, $termCode, $subCode, $programCode, $body['schedCode'], $body['description'], $body['units'],
                 $body['schedule'], $body['section'], $body['instructor'], !empty($body['exclusive']) ? 1 : 0,
-                $yearLevel, $semester, $subjectCategory,
+                $yearLevel, $semester, $subjectCategory, $requiredStanding ?? 0,
             ]);
             $subjectId = (int)$pdo->lastInsertId();
         }

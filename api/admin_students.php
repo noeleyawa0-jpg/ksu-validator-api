@@ -36,10 +36,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
 
     $current=db()->prepare('SELECT year_level FROM users WHERE id=? AND role="student"');
     $current->execute([$id]);$previous=$current->fetchColumn();
-    if ($previous !== false && $yearLevel>(int)$previous && $yearLevel>=3) {
+    if ($previous !== false && $yearLevel>=3) {
         $progress=student_standing_progress(db(),$id,$program);
         $rule=$yearLevel===3 ? $progress['thirdYear'] : $progress['fourthYear'];
-        if (!$rule['eligible']) error_response('This student has not passed at least 51% of the required Year 1–'.$rule['throughYear'].' curriculum units.',409);
+        if (!$rule['eligible']) error_response($yearLevel===3
+            ? 'Third-year standing requires above 51% and below 75% of the whole curriculum units. At 75% or more use fourth-year standing.'
+            : 'Fourth-year standing requires at least 75% of the whole curriculum units.',409);
     }
 
     $stmt = db()->prepare('
@@ -67,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // advancement must satisfy the approved unit rule; Year 4 never graduates here.
     $pdo = db(); $pdo->beginTransaction();
     try {
-        $stmt=$pdo->prepare('SELECT id,year_level FROM users WHERE role="student" AND program=? AND year_level BETWEEN 1 AND 3 FOR UPDATE');
+        $stmt=$pdo->prepare('SELECT id,year_level FROM users WHERE role="student" AND program=? AND year_level BETWEEN 1 AND 4 FOR UPDATE');
         $stmt->execute([$program]); $students=$stmt->fetchAll(); $updated=0;
         foreach ($students as $student) {
             if ((int)$student['year_level']===1) {
@@ -75,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updated++;
             } else {
                 $result=refresh_student_standing($pdo,$student['id'],(string)current_session()['sub']);
-                if ($result['promoted']) $updated++;
+                if ($result['changed']) $updated++;
             }
         }
         $pdo->commit(); respond(['status'=>'ok','updated'=>$updated]);

@@ -91,6 +91,7 @@ $subjectsOut = array_map(function ($s) use ($prereqStmt) {
         'curriculumSubjectId' => !empty($s['curriculum_subject_id']) ? (int)$s['curriculum_subject_id'] : null,
         'programCode' => $s['program_code'],
         'termCode' => $s['term_code'],
+        'requiredStanding' => (int)($s['required_standing'] ?? 0),
         'subCode' => $s['sub_code'],
         'schedCode' => $s['sched_code'],
         'description' => $s['description'],

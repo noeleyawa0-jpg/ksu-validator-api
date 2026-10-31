@@ -68,8 +68,8 @@ function prepare_term_offerings(PDO $pdo, string $termCode, int $semester): int 
         $sourceIds = array_column(array_values($copies), 'subject_id');
         $marks = implode(',', array_fill(0, count($sourceIds), '?'));
         $insert = $pdo->prepare("INSERT INTO subjects
-            (curriculum_subject_id,term_code,sub_code,program_code,sched_code,description,units,schedule,section,instructor,is_exclusive,year_level,semester,subject_category)
-            SELECT curriculum_subject_id,?,sub_code,program_code,'Not applicable',description,units,'Not applicable',section,'Not applicable',is_exclusive,year_level,semester,subject_category
+            (curriculum_subject_id,term_code,sub_code,program_code,sched_code,description,units,schedule,section,instructor,is_exclusive,year_level,semester,subject_category,required_standing)
+            SELECT curriculum_subject_id,?,sub_code,program_code,'Not applicable',description,units,'Not applicable',section,'Not applicable',is_exclusive,year_level,semester,subject_category,required_standing
             FROM subjects WHERE subject_id IN ($marks)");
         $insert->execute(array_merge([$termCode], $sourceIds));
         $find = $pdo->prepare('SELECT * FROM subjects WHERE term_code=?');

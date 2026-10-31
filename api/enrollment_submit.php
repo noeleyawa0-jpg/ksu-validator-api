@@ -3,6 +3,8 @@
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/token.php';
 require_once __DIR__ . '/academic_term_helpers.php';
+require_once __DIR__ . '/subject_standing.php';
+require_once __DIR__ . '/year_standing.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') error_response('Method not allowed', 405);
 $session=current_session();
@@ -77,6 +79,7 @@ try {
     $totalUnits = 0.0; $majorUnits=0.0; $minorUnits=0.0;
     $seen=[];
     $nstpTracks=[];
+    $standingProgress=null;
     foreach($subjects as $sub) {
         $subjectId=(int)($sub['subjectId']??0);
         if($subjectId<=0 || isset($seen[$subjectId])) { $pdo->rollBack(); error_response('Each selected subject must include a unique subjectId.',400); }
@@ -85,6 +88,11 @@ try {
         $subjectStmt->execute([$subjectId,(int)$currentTerm['semester'],$termCode]);
         $offering=$subjectStmt->fetch();
         if(!$offering){$pdo->rollBack();error_response('One or more selected subjects is not offered in the current semester.',400);}
+        if (required_subject_standing($offering)>=3 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$studentId,$program);
+        if (!subject_standing_allowed($student, $offering,$standingProgress)) {
+            $pdo->rollBack();
+            error_response($offering['sub_code'].' requires Year '.required_subject_standing($offering).' standing.',409);
+        }
 
         $units=(float)$offering['units']; $totalUnits += $units;
         $category=strtolower((string)($offering['subject_category'] ?? 'major'));

@@ -42,7 +42,7 @@ $requests = $reqStmt->fetchAll();
 
 $subStmt = $pdo->prepare('
     SELECT rs.*, s.subject_id, s.program_code, s.sub_code, s.description, s.units, s.schedule, s.section,
-           s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester
+           s.instructor, s.sched_code, s.is_exclusive, s.year_level, s.semester, s.required_standing
     FROM request_subjects rs
     JOIN subjects s ON s.subject_id = rs.subject_id
     WHERE rs.request_id = ?
@@ -126,6 +126,7 @@ foreach ($requests as $r) {
                 'section' => $s['section'],
                 'instructor' => $s['instructor'],
                 'prerequisites' => array_column($prereqRows, 'sub_code'),
+                'requiredStanding' => (int)($s['required_standing'] ?? 0),
                 'exclusive' => (bool)$s['is_exclusive'],
                 'yearLevel' => (int)$s['year_level'],
                 'semester' => (int)$s['semester'],

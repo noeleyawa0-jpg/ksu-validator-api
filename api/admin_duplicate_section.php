@@ -67,10 +67,11 @@ try {
 
     $insert = $pdo->prepare('INSERT INTO subjects
         (curriculum_subject_id, term_code, sub_code, program_code, sched_code, description, units,
-         schedule, section, instructor, is_exclusive, year_level, semester)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+         schedule, section, instructor, is_exclusive, year_level, semester, subject_category, required_standing)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
 
     $updateCode = $pdo->prepare('UPDATE subjects SET sub_code=?, section=?, curriculum_subject_id=COALESCE(curriculum_subject_id, ?) WHERE subject_id=?');
+    $copyStanding = $pdo->prepare('UPDATE subjects SET required_standing=?,subject_category=? WHERE subject_id=?');
     $deleteOldPrereqCode = $pdo->prepare('UPDATE subject_prerequisites SET sub_code=? WHERE subject_id=?');
 
     $copyPrereqs = $pdo->prepare('INSERT INTO subject_prerequisites
@@ -91,7 +92,7 @@ try {
         SET section=?
         WHERE term_code=? AND program_code=? AND year_level=? AND (section=? OR section=? OR section=?)');
 
-    $process = function(array $source) use ($pdo,$findExisting,$findByLegacy,$insert,$updateCode,$deleteOldPrereqCode,$copyPrereqs,$ensureCapacity,$normalizeCapacity,$currentTerm) {
+    $process = function(array $source) use ($pdo,$findExisting,$findByLegacy,$insert,$updateCode,$copyStanding,$deleteOldPrereqCode,$copyPrereqs,$ensureCapacity,$ensureSubjectCapacity,$normalizeCapacity,$currentTerm) {
         $program = trim((string)$source['program_code']);
         $year = (int)$source['year_level'];
         $targetSection = b_section_label($program, $year);
@@ -115,6 +116,7 @@ try {
         }
 
         if ($existing) {
+            $copyStanding->execute([$source['required_standing'] ?? 0,$source['subject_category'] ?? 'major',(int)$existing['subject_id']]);
             // Repair the accidental same-code B copy in-place. This preserves
             // its offering ID while giving it the requested distinct B code.
             if ((string)$existing['sub_code'] !== $newCode || (string)$existing['section'] !== $targetSection) {
@@ -133,7 +135,7 @@ try {
                 $curriculumId > 0 ? $curriculumId : null,
                 $currentTerm, $newCode, $program, $source['sched_code'], $source['description'],
                 $source['units'], $source['schedule'], $targetSection, $source['instructor'],
-                $source['is_exclusive'], $year, $source['semester']
+                $source['is_exclusive'], $year, $source['semester'], $source['subject_category'] ?? 'major', $source['required_standing'] ?? 0
             ]);
             $newId=(int)$pdo->lastInsertId();
             $copyPrereqs->execute([$newId,$newCode,(int)$source['subject_id']]);

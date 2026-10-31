@@ -14,15 +14,17 @@ CREATE TABLE curriculum_subjects(curriculum_subject_id BIGINT PRIMARY KEY,sub_co
 INSERT INTO curriculum_subjects VALUES(1,'C1',1);
 CREATE TABLE subjects(subject_id BIGINT PRIMARY KEY AUTO_INCREMENT,curriculum_subject_id BIGINT NULL,term_code VARCHAR(20),program_code VARCHAR(20),sub_code VARCHAR(20),description VARCHAR(200),units DECIMAL(5,1),year_level INT,semester INT,section VARCHAR(30));
 INSERT INTO subjects(curriculum_subject_id,term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES
-(1,'26-1','BSCpE','C1','Course 1',12.5,1,1,'BSCpE 1A'),
-(1,'26-1','BSCpE','C1-B','Course 1',12.5,1,1,'BSCpE 1B'),
-(NULL,'26-1','BSCpE','C2','Course 2',12.4,1,1,'BSCpE 1A'),
-(NULL,'26-1','BSCpE','C2','Course 2',12.4,1,1,'BSCpE 1B'),
+(1,'26-1','BSCpE','C1','Course 1',25,1,1,'BSCpE 1A'),
+(1,'26-1','BSCpE','C1-B','Course 1',25,1,1,'BSCpE 1B'),
+(NULL,'26-1','BSCpE','C2','Course 2',26,1,1,'BSCpE 1A'),
+(NULL,'26-1','BSCpE','C2','Course 2',26,1,1,'BSCpE 1B'),
 (NULL,'26-1','BSCpE','C3','Course 3',0.1,1,2,'BSCpE 1A'),
-(NULL,'26-1','BSCpE','D1','Course 4',12,2,1,'BSCpE 2A'),
-(NULL,'26-1','BSCpE','D2','Course 5',12,2,2,'BSCpE 2A'),
-(NULL,'26-1','BSCpE','E1','Course 6',2,3,1,'BSCpE 3A'),
-(NULL,'26-1','BSCpE','E2','Course 7',49,3,2,'BSCpE 3A'),
+(NULL,'26-1','BSCpE','D1','Course 4',0.1,2,1,'BSCpE 2A'),
+(NULL,'26-1','BSCpE','D2','Course 5',0.1,2,2,'BSCpE 2A'),
+(NULL,'26-1','BSCpE','E1','Course 6',0.1,3,1,'BSCpE 3A'),
+(NULL,'26-1','BSCpE','E2','Course 7',23.6,3,2,'BSCpE 3A'),
+(NULL,'26-1','BSCpE','F1','Final year course',12.5,4,1,'BSCpE 4A'),
+(NULL,'26-1','BSCpE','F2','Final year course',12.5,4,2,'BSCpE 4A'),
 (NULL,'27-1','BSCpE','FUTURE','Not current',99,1,1,'BSCpE 1A'),
 (NULL,'26-1','BSIT','OTHER','Other program',99,1,1,'BSIT 1A');
 CREATE TABLE users(id VARCHAR(20) PRIMARY KEY,role VARCHAR(20),first_name VARCHAR(50) DEFAULT 'Fictional',last_name VARCHAR(50) DEFAULT 'Student',email VARCHAR(100),department VARCHAR(20) DEFAULT 'CEIT',program VARCHAR(20),year_level INT,year_section VARCHAR(30),enrollment_type VARCHAR(20) DEFAULT 'regular');
@@ -57,62 +59,79 @@ with tempfile.TemporaryDirectory(prefix='ksu-standing-test-') as temporary:
   return req('admin_academic_records.php',dict(studentId=uid,subCode=code,schoolYearTaken=school,termCode='26-1',grade=value))
  try:
   time.sleep(.4)
-  p=profile();assert p['standingProgress']['thirdYear']['totalUnits']==49
+  p=profile();assert p['standingProgress']['thirdYear']['totalUnits']==100
   assert p['standingProgress']['fourthYear']['totalUnits']==100
   grade('C1');grade('C2');p=profile(sync=True)
-  assert p['yearLevel']==2 and p['standingProgress']['thirdYear']['passedUnits']==24.9
+  assert p['yearLevel']==2 and p['standingProgress']['thirdYear']['passedUnits']==51
   assert not p['standingProgress']['thirdYear']['eligible']
   grade('C1',school='2025–2026');grade('C1-B');p=profile()
-  assert p['standingProgress']['thirdYear']['passedUnits']==24.9
+  assert p['standingProgress']['thirdYear']['passedUnits']==51
   for value in ['5.00','INC','OD']:grade('D1',value)
   assert profile()['yearLevel']==2
-  print('PASS 24.9/49 fails; duplicates, sections, retakes and failed/incomplete/dropped grades add no extra units')
+  print('PASS Exactly 51/100 does not qualify; duplicates, sections, retakes and failed/incomplete/dropped grades add no extra units')
   r=grade('C3');assert r['promoted'] and r['yearLevel']==3
   p=profile();assert p['yearLevel']==3 and p['yearSection']=='BSCpE 3B'
-  assert p['standingProgress']['thirdYear']['passedUnits']==25
-  print('PASS 25/49 qualifies; saving the final passing grade automatically promotes Year 2 to Year 3')
+  assert p['standingProgress']['thirdYear']['passedUnits']==51.1
+  print('PASS 51.1/100 qualifies; saving the final passing grade automatically promotes Year 2 to Year 3')
   grade('D1');grade('D2');assert profile()['yearLevel']==3
-  r=grade('E1');assert r['promoted'] and r['yearLevel']==4
+  grade('E1');r=grade('E2');assert r['promoted'] and r['yearLevel']==4
   p=profile(sync=True);assert p['yearLevel']==4 and p['yearSection']=='BSCpE 4B'
-  assert p['standingProgress']['fourthYear']['passedUnits']==51
+  assert p['standingProgress']['fourthYear']['passedUnits']==75
   assert sql('SELECT COUNT(*) FROM year_standing_test.student_movements')=='2'
-  assert sql("SELECT COUNT(*) FROM year_standing_test.academic_records WHERE student_id='LOCAL-2'")=='8'
-  print('PASS exactly 51/100 promotes Year 3 to Year 4; audit saved; grades retained; repeat sync does not promote beyond Year 4')
+  assert sql("SELECT COUNT(*) FROM year_standing_test.academic_records WHERE student_id='LOCAL-2'")=='9'
+  print('PASS exactly 75/100 promotes Year 3 to Year 4; audit saved; grades retained; repeat sync does not promote beyond Year 4')
+  grade('C3','5.00');p=profile();assert p['yearLevel']==3 and p['standingProgress']['thirdYear']['passedUnits']==74.9
+  grade('C3');assert profile()['yearLevel']==4
+  sql("INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES ('LOCAL-OLD','student','BSCpE',4,'BSCpE 4A')")
+  sql("INSERT INTO year_standing_test.academic_records(student_id,sub_code,school_year_taken,term_code,grade,passed) SELECT 'LOCAL-OLD',sub_code,school_year_taken,term_code,grade,passed FROM year_standing_test.academic_records WHERE student_id='LOCAL-2' AND sub_code IN ('C1','C2')")
+  assert profile('LOCAL-OLD',True)['yearLevel']==2
+  assert sql("SELECT COUNT(*) FROM year_standing_test.student_movements WHERE student_id='LOCAL-OLD' AND movement_type='year_reclassification'")=='1'
+  print('PASS 74.9% is third year; exactly 75% is fourth year; old fourth-year label at exactly 51% reclassifies to second with audit')
   # Summer is part of the denominator and does not require a separate policy toggle.
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','SUM','Required Summer',1,1,3,'BSCpE 1A')")
-  p=profile();assert p['standingProgress']['thirdYear']['totalUnits']==50 and p['standingProgress']['fourthYear']['totalUnits']==101
+  p=profile();assert p['standingProgress']['thirdYear']['totalUnits']==101 and p['standingProgress']['fourthYear']['totalUnits']==101
   print('PASS required summer units are included; future terms and other programs excluded')
   # Existing Registrar history is synchronized at profile load, without editing it.
-  sql("INSERT INTO year_standing_test.academic_records(student_id,sub_code,school_year_taken,term_code,grade,passed) SELECT 'LOCAL-LOW',sub_code,school_year_taken,term_code,grade,passed FROM year_standing_test.academic_records WHERE student_id='LOCAL-2' AND sub_code IN ('C1','C2','C3','D2')")
+  sql("INSERT INTO year_standing_test.academic_records(student_id,sub_code,school_year_taken,term_code,grade,passed) SELECT 'LOCAL-LOW',sub_code,school_year_taken,term_code,grade,passed FROM year_standing_test.academic_records WHERE student_id='LOCAL-2'")
   assert profile('LOCAL-LOW',True)['yearLevel']==3
   req('student_profile.php',{'id':'LOCAL-2'},role='student',uid='LOCAL-LOW',expected=403)
   req('student_profile.php',{'id':'LOCAL-2'},role='chairperson',uid='LOCAL-CHAIR',program='BSIT',expected=403)
   print('PASS profile sync promotes eligible existing history; account/program isolation enforced')
   # Incomplete required curriculum must never create an artificially low denominator.
-  sql("DELETE FROM year_standing_test.subjects WHERE program_code='BSCpE' AND year_level=3 AND semester=2")
+  sql("DELETE FROM year_standing_test.subjects WHERE program_code='BSCpE' AND year_level=4 AND semester=2")
   p=profile();assert not p['standingProgress']['fourthYear']['curriculumComplete'] and not p['standingProgress']['fourthYear']['eligible']
   assert profile('LOCAL-FRESH',True)['yearLevel']==1
   print('PASS missing required semester blocks promotion; no invented freshman rule')
+  sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','F2','Restored final semester',12.5,4,2,'BSCpE 4A')")
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','NSTP 11','ROTC',3,1,1,'BSCpE 1A'),('26-1','BSCpE','NSTP 11-A','CWTS',3,1,1,'BSCpE 1A')")
-  assert profile()['standingProgress']['thirdYear']['totalUnits']==53
+  assert profile()['standingProgress']['thirdYear']['totalUnits']==104
   grade('NSTP 11');grade('NSTP 11-A')
-  assert profile()['standingProgress']['thirdYear']['passedUnits']==52
+  assert profile()['standingProgress']['thirdYear']['passedUnits']==78
   print('PASS alternative NSTP tracks count once in both required and passed units')
   sql("INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES ('LOCAL-ZERO','student','BSCpE',2,'BSCpE 2A')")
   req('admin_students.php',{'program':'BSCpE'})
   assert profile('LOCAL-ZERO')['yearLevel']==2
   req('admin_students.php',dict(id='LOCAL-ZERO',firstName='Fictional',lastName='Student',program='BSCpE',yearLevel=3,yearSection='BSCpE 3A',enrollmentType='regular'),method='PUT',expected=409)
-  print('PASS bulk year advancement cannot bypass 51% for Year 3/4')
+  print('PASS bulk year advancement cannot bypass whole-curriculum percentage requirements')
   sql("INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES ('LOCAL-ROLLBACK','student','BSCpE',2,'BSCpE 2A')")
   grade('C1',uid='LOCAL-ROLLBACK');grade('C2',uid='LOCAL-ROLLBACK')
   sql('RENAME TABLE year_standing_test.student_movements TO year_standing_test.student_movements_unavailable')
-  req('admin_academic_records.php',dict(studentId='LOCAL-ROLLBACK',subCode='D1',schoolYearTaken='2026–2027',termCode='26-1',grade='2.00'),expected=500)
+  req('admin_academic_records.php',dict(studentId='LOCAL-ROLLBACK',subCode='NSTP 11',schoolYearTaken='2026–2027',termCode='26-1',grade='2.00'),expected=500)
   sql('RENAME TABLE year_standing_test.student_movements_unavailable TO year_standing_test.student_movements')
   assert profile('LOCAL-ROLLBACK')['yearLevel']==2
-  assert sql("SELECT COUNT(*) FROM year_standing_test.academic_records WHERE student_id='LOCAL-ROLLBACK' AND sub_code='D1'")=='0'
+  assert sql("SELECT COUNT(*) FROM year_standing_test.academic_records WHERE student_id='LOCAL-ROLLBACK' AND sub_code='NSTP 11'")=='0'
   print('PASS grade and promotion roll back together if audit storage fails')
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','C2','Conflicting duplicate units',8,1,1,'BSCpE 1C')")
   assert not profile('LOCAL-ZERO')['standingProgress']['thirdYear']['curriculumComplete']
   print('PASS conflicting section units require curriculum review instead of an unsafe promotion')
+  sql("DELETE FROM year_standing_test.subjects WHERE section='BSCpE 1C'; INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES('LOCAL-ADMIN','admin','BSCpE',1,''),('LOCAL-MIGRATE','student','BSCpE',4,'BSCpE 4A')")
+  history=sql('SELECT * FROM year_standing_test.academic_records ORDER BY id')
+  for _ in range(2):
+   subprocess.run(['C:/xampp/php/php.exe',str(api/'migrate_subject_standing.php')],env=dict(os.environ,LOCAL_DB_PORT=str(args.port)),capture_output=True,check=True)
+  assert profile('LOCAL-MIGRATE')['yearLevel']==2
+  assert sql("SELECT COUNT(*) FROM year_standing_test.student_movements WHERE student_id='LOCAL-MIGRATE'")=='1'
+  assert history==sql('SELECT * FROM year_standing_test.academic_records ORDER BY id')
+  print('PASS deployment reclassifies existing students once, records movement audit, and preserves every grade')
+
  finally:
   server.terminate();server.wait(timeout=10);log.close()
