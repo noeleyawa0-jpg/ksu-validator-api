@@ -75,7 +75,8 @@ try {
 
     $insertStmt=$pdo->prepare('INSERT INTO request_subjects (request_id,sub_code,subject_id,local_check,status) VALUES (?,?,?,?,"pending")');
 
-    // KSU regular-term cap is 26; probation is capped at 15. Summer/special terms use separate major/minor caps.
+    // Fourth-year regular semesters allow 30 units. Other years allow 26;
+    // probation remains 15 and summer retains separate major/minor caps.
     $totalUnits = 0.0; $majorUnits=0.0; $minorUnits=0.0;
     $seen=[];
     $nstpTracks=[];
@@ -101,8 +102,8 @@ try {
             if($majorUnits>6.0){$pdo->rollBack();error_response('Summer/special-term major subjects are limited to 6 units total.',409);}
             if($minorUnits>9.0){$pdo->rollBack();error_response('Summer/special-term minor subjects are limited to 9 units total.',409);}
         }
-        $maxUnits=$isOnProbation?15.0:26.0;
-        if($totalUnits>$maxUnits){$pdo->rollBack();error_response($isOnProbation?'Academic probation limits your enrollment load to 15 units.':'Your selected subjects exceed the maximum 26-unit load.',409);}
+        $maxUnits=$isOnProbation?15.0:($yearLevel===4 && (int)$currentTerm['semester']!==3 ? 30.0 : 26.0);
+        if($totalUnits>$maxUnits){$pdo->rollBack();error_response($isOnProbation?'Academic probation limits your enrollment load to 15 units.':'Your selected subjects exceed the maximum '.$maxUnits.'-unit load.',409);}
 
         $nstpCode=strtoupper(str_replace(' ', '', trim((string)$offering['sub_code'])));
         if(in_array($nstpCode, ['NSTP11','NSTP11-A','NSTP12-A','NSTP12-B'], true)) {
