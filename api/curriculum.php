@@ -37,6 +37,7 @@ $activeTerm = $termStmt->fetch();
 $currentTerm = $activeTerm['term_code'] ?? null;
 if (!$currentTerm) error_response('No current academic term is configured.', 409);
 $termCode = $requestedTerm !== '' ? $requestedTerm : $currentTerm;
+$fullCatalog = ($_GET['view'] ?? '') === 'catalog' && ($session['role'] ?? '') === 'admin';
 if (($session['role'] ?? '') === 'student') {
     // Students can only browse enrollable offerings for the active semester.
     $termCode = $currentTerm;
@@ -45,8 +46,27 @@ if (($session['role'] ?? '') === 'student') {
     $semesterFilter = (int)$activeTerm['semester'];
 }
 
-$sql = 'SELECT * FROM subjects WHERE program_code = ? AND term_code = ?';
-$params = [$programCode, $termCode];
+if ($fullCatalog) {
+    // One complete offering set per semester, rather than a union that would
+    // resurrect removed subjects or repeat every historical copy. The active
+    // semester uses its exact current-term set (even if deliberately empty).
+    $sql = 'SELECT * FROM subjects WHERE program_code = ? AND (
+        (semester = ? AND term_code = ?) OR
+        (semester <> ? AND term_code = (
+            SELECT MAX(t.term_code) FROM academic_terms t
+            WHERE t.semester = subjects.semester AND (
+                EXISTS (SELECT 1 FROM subjects c WHERE c.program_code = subjects.program_code
+                    AND c.semester = subjects.semester AND c.term_code = t.term_code)
+                OR EXISTS (SELECT 1 FROM term_offering_rollovers r
+                    WHERE r.program_code = subjects.program_code AND r.term_code = t.term_code)
+            )
+        )))';
+    $params = [$programCode, (int)$activeTerm['semester'], $currentTerm, (int)$activeTerm['semester']];
+    $semesterFilter = 0;
+} else {
+    $sql = 'SELECT * FROM subjects WHERE program_code = ? AND term_code = ?';
+    $params = [$programCode, $termCode];
+}
 if ($semesterFilter !== 0) { $sql .= ' AND semester = ?'; $params[] = $semesterFilter; }
 if ($yearLevelFilter !== 0) { $sql .= ' AND year_level = ?'; $params[] = $yearLevelFilter; }
 if ($section !== '') { $sql .= ' AND section = ?'; $params[] = $section; }
@@ -70,6 +90,7 @@ $subjectsOut = array_map(function ($s) use ($prereqStmt) {
         'subjectId' => (int)$s['subject_id'],
         'curriculumSubjectId' => !empty($s['curriculum_subject_id']) ? (int)$s['curriculum_subject_id'] : null,
         'programCode' => $s['program_code'],
+        'termCode' => $s['term_code'],
         'subCode' => $s['sub_code'],
         'schedCode' => $s['sched_code'],
         'description' => $s['description'],
