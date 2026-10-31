@@ -185,15 +185,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'DELETE') {
     $id = (int)($_GET['id'] ?? 0);
     if ($id <= 0) error_response('Record id is required.');
 
-    if ($isChair) {
-        $stmt = $pdo->prepare("DELETE ar FROM academic_records ar JOIN users u ON u.id = ar.student_id WHERE ar.id = ? AND u.role = 'student' AND u.program = ?");
-        $stmt->execute([$id, $chairProgram]);
-    } else {
-        $stmt = $pdo->prepare('DELETE FROM academic_records WHERE id = ?');
-        $stmt->execute([$id]);
+    $pdo->beginTransaction();
+    try {
+        $stmt=$pdo->prepare('SELECT ar.student_id,u.program FROM academic_records ar JOIN users u ON u.id=ar.student_id WHERE ar.id=? AND u.role="student" FOR UPDATE');
+        $stmt->execute([$id]);$record=$stmt->fetch();
+        if (!$record || ($isChair && $record['program']!==$chairProgram)) {
+            $pdo->rollBack();error_response('Academic record not found or outside your assigned program.',404);
+        }
+        $pdo->prepare('DELETE FROM academic_records WHERE id=?')->execute([$id]);
+        $standing=refresh_student_standing($pdo,$record['student_id'],(string)$session['sub']);
+        $pdo->commit();
+        respond(['status'=>'ok','yearLevel'=>$standing['yearLevel'],'reclassified'=>$standing['changed']]);
+    } catch(Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Grade deletion/standing update failed: '.$e->getMessage());
+        error_response('Unable to delete the grade and synchronize year standing.',500);
     }
-    if ($stmt->rowCount() === 0) error_response('Academic record not found or outside your assigned program.', 404);
-    respond(['status' => 'ok']);
 }
 
 error_response('Method not allowed', 405);

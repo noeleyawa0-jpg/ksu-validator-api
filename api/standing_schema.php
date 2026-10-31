@@ -7,7 +7,7 @@ function migrate_subject_standing(PDO $pdo): void {
 
 function reclassify_existing_standings(PDO $pdo): void {
     $pdo->exec('CREATE TABLE IF NOT EXISTS ksu_schema_migrations (migration_key VARCHAR(100) PRIMARY KEY, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-    $key='20261031_whole_curriculum_standing_v1';
+    $key='20261031_whole_curriculum_standing_v2_all_years';
     $done=$pdo->prepare('SELECT migration_key FROM ksu_schema_migrations WHERE migration_key=?');
     $done->execute([$key]);if ($done->fetchColumn()) return;
     $actor=$pdo->query("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1")->fetchColumn();

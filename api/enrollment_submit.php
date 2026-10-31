@@ -88,7 +88,7 @@ try {
         $subjectStmt->execute([$subjectId,(int)$currentTerm['semester'],$termCode]);
         $offering=$subjectStmt->fetch();
         if(!$offering){$pdo->rollBack();error_response('One or more selected subjects is not offered in the current semester.',400);}
-        if (required_subject_standing($offering)>=3 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$studentId,$program);
+        if (required_subject_standing($offering)>=2 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$studentId,$program);
         if (!subject_standing_allowed($student, $offering,$standingProgress)) {
             $pdo->rollBack();
             error_response($offering['sub_code'].' requires Year '.required_subject_standing($offering).' standing.',409);

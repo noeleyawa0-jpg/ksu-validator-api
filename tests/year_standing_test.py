@@ -87,6 +87,21 @@ with tempfile.TemporaryDirectory(prefix='ksu-standing-test-') as temporary:
   assert profile('LOCAL-OLD',True)['yearLevel']==2
   assert sql("SELECT COUNT(*) FROM year_standing_test.student_movements WHERE student_id='LOCAL-OLD' AND movement_type='year_reclassification'")=='1'
   print('PASS 74.9% is third year; exactly 75% is fourth year; old fourth-year label at exactly 51% reclassifies to second with audit')
+  assert profile('LOCAL-FRESH',True)['yearLevel']==1
+  r=grade('C1',uid='LOCAL-FRESH');assert r['promoted'] and r['yearLevel']==2
+  grade('C1','5.00',uid='LOCAL-FRESH');assert profile('LOCAL-FRESH')['yearLevel']==1
+  print('PASS exactly 25% automatically promotes a freshman to second year; lost passing credit reclassifies below 25% to first')
+  grade('C1',uid='LOCAL-FRESH');record=sql("SELECT id FROM year_standing_test.academic_records WHERE student_id='LOCAL-FRESH' AND sub_code='C1'")
+  req('admin_academic_records.php?id='+record,method='DELETE',role='chairperson',program='BSIT',expected=404)
+  assert profile('LOCAL-FRESH')['yearLevel']==2
+  sql('RENAME TABLE year_standing_test.student_movements TO year_standing_test.student_movements_unavailable')
+  req('admin_academic_records.php?id='+record,method='DELETE',expected=500)
+  sql('RENAME TABLE year_standing_test.student_movements_unavailable TO year_standing_test.student_movements')
+  assert sql('SELECT COUNT(*) FROM year_standing_test.academic_records WHERE id='+record)=='1'
+  req('admin_academic_records.php?id='+record,method='DELETE')
+  assert profile('LOCAL-FRESH')['yearLevel']==1
+  print('PASS grade deletion reclassifies atomically, checks chair program, and rolls back when audit is unavailable')
+
   # Summer is part of the denominator and does not require a separate policy toggle.
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','SUM','Required Summer',1,1,3,'BSCpE 1A')")
   p=profile();assert p['standingProgress']['thirdYear']['totalUnits']==101 and p['standingProgress']['fourthYear']['totalUnits']==101
@@ -101,7 +116,7 @@ with tempfile.TemporaryDirectory(prefix='ksu-standing-test-') as temporary:
   sql("DELETE FROM year_standing_test.subjects WHERE program_code='BSCpE' AND year_level=4 AND semester=2")
   p=profile();assert not p['standingProgress']['fourthYear']['curriculumComplete'] and not p['standingProgress']['fourthYear']['eligible']
   assert profile('LOCAL-FRESH',True)['yearLevel']==1
-  print('PASS missing required semester blocks promotion; no invented freshman rule')
+  print('PASS missing required semester blocks promotion; incomplete curriculum does not reclassify students')
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','F2','Restored final semester',12.5,4,2,'BSCpE 4A')")
   sql("INSERT INTO year_standing_test.subjects(term_code,program_code,sub_code,description,units,year_level,semester,section) VALUES('26-1','BSCpE','NSTP 11','ROTC',3,1,1,'BSCpE 1A'),('26-1','BSCpE','NSTP 11-A','CWTS',3,1,1,'BSCpE 1A')")
   assert profile()['standingProgress']['thirdYear']['totalUnits']==104
@@ -110,7 +125,7 @@ with tempfile.TemporaryDirectory(prefix='ksu-standing-test-') as temporary:
   print('PASS alternative NSTP tracks count once in both required and passed units')
   sql("INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES ('LOCAL-ZERO','student','BSCpE',2,'BSCpE 2A')")
   req('admin_students.php',{'program':'BSCpE'})
-  assert profile('LOCAL-ZERO')['yearLevel']==2
+  assert profile('LOCAL-ZERO')['yearLevel']==1
   req('admin_students.php',dict(id='LOCAL-ZERO',firstName='Fictional',lastName='Student',program='BSCpE',yearLevel=3,yearSection='BSCpE 3A',enrollmentType='regular'),method='PUT',expected=409)
   print('PASS bulk year advancement cannot bypass whole-curriculum percentage requirements')
   sql("INSERT INTO year_standing_test.users(id,role,program,year_level,year_section) VALUES ('LOCAL-ROLLBACK','student','BSCpE',2,'BSCpE 2A')")
@@ -128,7 +143,7 @@ with tempfile.TemporaryDirectory(prefix='ksu-standing-test-') as temporary:
   history=sql('SELECT * FROM year_standing_test.academic_records ORDER BY id')
   for _ in range(2):
    subprocess.run(['C:/xampp/php/php.exe',str(api/'migrate_subject_standing.php')],env=dict(os.environ,LOCAL_DB_PORT=str(args.port)),capture_output=True,check=True)
-  assert profile('LOCAL-MIGRATE')['yearLevel']==2
+  assert profile('LOCAL-MIGRATE')['yearLevel']==1
   assert sql("SELECT COUNT(*) FROM year_standing_test.student_movements WHERE student_id='LOCAL-MIGRATE'")=='1'
   assert history==sql('SELECT * FROM year_standing_test.academic_records ORDER BY id')
   print('PASS deployment reclassifies existing students once, records movement audit, and preserves every grade')

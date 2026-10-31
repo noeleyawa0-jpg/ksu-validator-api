@@ -1,6 +1,6 @@
 <?php
 // Adviser clarification: whole-course units; >51% and <75% is third year,
-// >=75% is fourth year. No Year-1/2 percentage rule is inferred.
+// >=75% is fourth year; <25% is first year and 25% through 51% is second.
 function standing_code(string $code): string {
     return strtoupper(preg_replace('/\s+/', ' ', trim($code)));
 }
@@ -74,15 +74,18 @@ function standing_progress(array $requirements, array $passedCodes, int $through
     }
     return [
         'throughYear'=>$throughYear,'basis'=>'wholeCurriculum',
-        'thresholdPercent'=>$targetYear===3 ? 51 : 75,
-        'thresholdInclusive'=>$targetYear===4,
+        'thresholdPercent'=>[1=>25,2=>25,3=>51,4=>75][$targetYear],
+        'thresholdInclusive'=>in_array($targetYear,[2,4],true),
         'totalUnits'=>$total/10,'passedUnits'=>$passed/10,
         'percent'=>$total>0 ? round($passed*100/$total,2) : 0,
         'curriculumComplete'=>$complete && $total>0,
         // Compare integer tenths, never a rounded display percentage.
-        'eligible'=>$complete && $total>0 && ($targetYear===3
-            ? ($passed*100 > $total*51 && $passed*100 < $total*75)
-            : $passed*100 >= $total*75),
+        'eligible'=>$complete && $total>0 && match($targetYear) {
+            1=>$passed*100 < $total*25,
+            2=>$passed*100 >= $total*25 && $passed*100 <= $total*51,
+            3=>$passed*100 > $total*51 && $passed*100 < $total*75,
+            4=>$passed*100 >= $total*75,
+        },
     ];
 }
 
@@ -100,8 +103,17 @@ function student_standing_progress(PDO $pdo, string $studentId, string $program)
     // final year as a complete, smaller course. Include a fifth year if present.
     $throughYear = 4;
     foreach ($requirements as $r) $throughYear = max($throughYear,$r['year']);
-    return ['thirdYear'=>standing_progress($requirements,$passed,$throughYear,3),
+    return ['firstYear'=>standing_progress($requirements,$passed,$throughYear,1),
+        'secondYear'=>standing_progress($requirements,$passed,$throughYear,2),
+        'thirdYear'=>standing_progress($requirements,$passed,$throughYear,3),
         'fourthYear'=>standing_progress($requirements,$passed,$throughYear,4)];
+}
+
+function classified_year(array $progress): ?int {
+    foreach ([4=>'fourthYear',3=>'thirdYear',2=>'secondYear',1=>'firstYear'] as $year=>$key) {
+        if (($progress[$key]['curriculumComplete'] ?? false) && ($progress[$key]['eligible'] ?? false)) return $year;
+    }
+    return null;
 }
 
 function refresh_student_standing(PDO $pdo, string $studentId, string $actor): array {
@@ -113,20 +125,13 @@ function refresh_student_standing(PDO $pdo, string $studentId, string $actor): a
         if (!$student) throw new RuntimeException('Student not found.');
         $year = (int)$student['year_level'];
         $progress = student_standing_progress($pdo,$studentId,$student['program']);
-        $target = $year;
-        $rule = null;
-        if ($progress['fourthYear']['curriculumComplete'] && $progress['fourthYear']['eligible']) {
-            $target=4; $rule=$progress['fourthYear'];
-        } elseif ($progress['thirdYear']['curriculumComplete'] && $progress['thirdYear']['eligible']) {
-            $target=3; $rule=$progress['thirdYear'];
-        } elseif ($year>=3 && $progress['thirdYear']['curriculumComplete']) {
-            $target=2; $rule=$progress['thirdYear'];
-        }
+        $target = classified_year($progress) ?? $year;
+        $rule = $progress['fourthYear'];
         if ($target !== $year) {
             $oldSection = (string)($student['year_section'] ?? '');
             $section = preg_replace('/(?<!\d)'.$year.'(?=[- ]?[A-Z]$)/i',(string)$target,$oldSection);
             $pdo->prepare('UPDATE users SET year_level=?,year_section=? WHERE id=? AND year_level=?')->execute([$target,$section,$studentId,$year]);
-            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' whole-curriculum units passed ('.($target===3 ? 'above 51% and below 75%' : ($target===4 ? 'at least 75%' : 'third/fourth-year threshold not met')).').';
+            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' whole-curriculum units passed ('.[1=>'below 25%',2=>'25% through 51%',3=>'above 51% and below 75%',4=>'at least 75%'][$target].').';
             $pdo->prepare('INSERT INTO student_movements
                 (student_id,movement_type,from_program,to_program,from_year_level,to_year_level,from_section,to_section,notes,performed_by,moved_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')->execute([

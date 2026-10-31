@@ -7,8 +7,10 @@ function required_subject_standing(array $subject): int {
 function subject_standing_allowed(array $student, array $subject, ?array $progress=null): bool {
     $required=required_subject_standing($subject);
     if ((int)$student['year_level'] < $required) return false;
-    if ($required<3) return true;
+    if ($required<2) return true;
     if (!$progress) return false;
+    if ($required===2) return ($progress['secondYear']['eligible'] ?? false)
+        || ($progress['thirdYear']['eligible'] ?? false) || ($progress['fourthYear']['eligible'] ?? false);
     return $required===3
         ? (($progress['thirdYear']['eligible'] ?? false) || ($progress['fourthYear']['eligible'] ?? false))
         : ($progress['fourthYear']['eligible'] ?? false);

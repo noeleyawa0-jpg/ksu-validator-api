@@ -51,7 +51,7 @@ foreach ($rows as $s) {
     $prereqStmt->execute([(int)$s['subject_id']]);
     $prereqs=$prereqStmt->fetchAll();
     $eligible=true; $reason='Eligible';
-    if (required_subject_standing($s)>=3 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$student['id'],$student['program']);
+    if (required_subject_standing($s)>=2 && $standingProgress===null) $standingProgress=student_standing_progress($pdo,$student['id'],$student['program']);
     if (!subject_standing_allowed($student,$s,$standingProgress)) {
         $eligible=false; $reason='Requires Year '.required_subject_standing($s).' standing.';
     }
