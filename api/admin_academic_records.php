@@ -102,6 +102,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     ]);
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'PUT') {
+    $body=json_body();
+    $recordId=filter_var($body['recordId'] ?? null,FILTER_VALIDATE_INT,['options'=>['min_range'=>1]]);
+    $studentId=trim((string)($body['studentId'] ?? ''));
+    $grade=normalize_grade((string)($body['grade'] ?? ''));
+    if (!$recordId || $studentId==='') error_response('Record ID and student ID are required.');
+    if (!is_valid_kSU_grade($grade)) error_response('Select a valid KSU grade.');
+    $pdo->beginTransaction();
+    try {
+        $studentStmt=$pdo->prepare('SELECT id,program FROM users WHERE id=? AND role="student" FOR UPDATE');
+        $studentStmt->execute([$studentId]);$student=$studentStmt->fetch();
+        if (!$student) {$pdo->rollBack();error_response('Student not found.',404);}
+        if ($isChair && $student['program']!==$chairProgram) {$pdo->rollBack();error_response('You can only manage grades for students in your assigned program.',403);}
+        $stmt=$pdo->prepare('SELECT * FROM academic_records WHERE id=? AND student_id=? FOR UPDATE');
+        $stmt->execute([$recordId,$studentId]);$record=$stmt->fetch();
+        if (!$record) {$pdo->rollBack();error_response('Academic record not found for this student.',404);}
+        if (isset($body['expectedGrade']) && (string)$body['expectedGrade']!==(string)$record['grade'] && $grade!==(string)$record['grade']) {
+            $pdo->rollBack();error_response('This grade changed since you opened it. Refresh the records and try again.',409);
+        }
+        $passed=passed_from_grade($grade);
+        // Update this exact row. Never move a historical record into the active
+        // term or create a duplicate when its term code is null.
+        $pdo->prepare('UPDATE academic_records SET grade=?,passed=? WHERE id=? AND student_id=?')->execute([$grade,(int)$passed,$recordId,$studentId]);
+        $standing=refresh_student_standing($pdo,$studentId,(string)$session['sub']);
+        $pdo->commit();
+        respond(['status'=>'ok','id'=>(int)$recordId,'grade'=>$grade,'passed'=>$passed,
+            'result'=>status_from_grade($grade,$passed),'yearLevel'=>$standing['yearLevel']]);
+    } catch(Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        error_log('Grade correction/standing update failed: '.$e->getMessage());
+        error_response('Unable to update the grade and synchronize year standing.',500);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $body = json_body();
     $studentId = trim($body['studentId'] ?? '');
