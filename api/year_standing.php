@@ -91,7 +91,7 @@ function standing_progress(array $requirements, array $passedCodes, int $through
     }
     return [
         'throughYear'=>$throughYear,'basis'=>'wholeCurriculum',
-        'thresholdPercent'=>[1=>25,2=>25,3=>51,4=>75][$targetYear],
+        'thresholdPercent'=>[1=>25,2=>25,3=>50,4=>75][$targetYear],
         'thresholdInclusive'=>in_array($targetYear,[2,4],true),
         'totalUnits'=>$total/10,'passedUnits'=>$passed/10,
         'percent'=>$total>0 ? round($passed*100/$total,2) : 0,
