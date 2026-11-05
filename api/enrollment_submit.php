@@ -110,16 +110,11 @@ try {
             $nstpTracks[]=$nstpCode;
         }
 
-        // Normal subjects must belong to the student's home program/year/section.
-        // Cross-level and cross-program subjects are allowed through the search
-        // flow, but they must still be current-semester offerings.
+        // Official year standing does not limit subject choices. A home-program
+        // subject from another year is valid when its prerequisites and any
+        // explicit standing requirement are met. Every offering remains tied to
+        // the active term, its own capacity, and the selected student's program.
         $isHomeOffering = $offering['program_code'] === $program;
-        if($isHomeOffering && ((int)$offering['year_level'] !== $yearLevel || trim($offering['section']) !== $selectedSection)) {
-            $isIrregular=in_array($enrollmentType,['irregular','transferee','shifter','returnee','crossenroll','cross_enroll'],true);
-            if(!$isIrregular || (int)$offering['year_level'] >= $yearLevel){
-                $pdo->rollBack(); error_response('Regular students must select subjects in their current year/section. Irregular students may select unpassed lower-year back subjects.',400);
-            }
-        }
         if(!$isHomeOffering){
             $homeEquivalentStmt->execute([$program,$offering['description'],$units]);
             if((int)$homeEquivalentStmt->fetchColumn()===0){

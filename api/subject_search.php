@@ -74,11 +74,8 @@ foreach ($rows as $s) {
         }
     }
 
-    // Keep the existing eligibility rule: regular/freshman students may take
-    // up to one year ahead; irregular/shifter/returnee are not restricted by year.
-    if ($eligible && in_array($student['enrollment_type'], ['regular','freshman'], true) && (int)$s['year_level'] > ((int)$student['year_level'] + 1)) {
-        $eligible=false; $reason='This subject is beyond the allowed year-level range.';
-    }
+    // Year classification is informational. Any current-term offering can be
+    // selected when it has no unmet prerequisite or explicit standing rule.
 
     $countStmt->execute([$term['term_code'],(int)$s['subject_id']]);
     $enrolled=(int)($countStmt->fetch()['enrolled'] ?? 0);

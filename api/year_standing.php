@@ -1,6 +1,7 @@
 <?php
-// Adviser clarification: whole-course units; >51% and <75% is third year,
-// >=75% is fourth year; <25% is first year and 25% through 51% is second.
+// Scope: whole-course units; >50% and <75% is third year, >=75% is
+// fourth year. A student is also senior when every prescribed lower-year
+// subject is cleared. <25% is first year and 25% through 50% is second.
 function standing_code(string $code): string {
     return strtoupper(preg_replace('/\s+/', ' ', trim($code)));
 }
@@ -72,6 +73,22 @@ function standing_progress(array $requirements, array $passedCodes, int $through
     for ($year=1;$year<=$throughYear;$year++) {
         foreach ([1,2] as $semester) if (!isset($present["$year|$semester"])) $complete = false;
     }
+    // Senior standing may also be reached by clearing every prescribed
+    // subject in Years 1–3. This includes a required summer subject when
+    // one exists; missing summer offerings do not create a fictional course.
+    $lowerYearsCleared = $valid;
+    foreach ($requirements as $r) {
+        if ($r['year'] >= 4 || $r['year'] > $throughYear) continue;
+        if (!isset($credited[$r['creditKey']])) {
+            $lowerYearsCleared = false;
+            break;
+        }
+    }
+    for ($year=1; $year<=min(3, $throughYear); $year++) {
+        foreach ([1,2] as $semester) {
+            if (!isset($present["$year|$semester"])) $lowerYearsCleared = false;
+        }
+    }
     return [
         'throughYear'=>$throughYear,'basis'=>'wholeCurriculum',
         'thresholdPercent'=>[1=>25,2=>25,3=>51,4=>75][$targetYear],
@@ -79,12 +96,13 @@ function standing_progress(array $requirements, array $passedCodes, int $through
         'totalUnits'=>$total/10,'passedUnits'=>$passed/10,
         'percent'=>$total>0 ? round($passed*100/$total,2) : 0,
         'curriculumComplete'=>$complete && $total>0,
+        'lowerYearsCleared'=>$lowerYearsCleared,
         // Compare integer tenths, never a rounded display percentage.
         'eligible'=>$complete && $total>0 && match($targetYear) {
             1=>$passed*100 < $total*25,
-            2=>$passed*100 >= $total*25 && $passed*100 <= $total*51,
-            3=>$passed*100 > $total*51 && $passed*100 < $total*75,
-            4=>$passed*100 >= $total*75,
+            2=>$passed*100 >= $total*25 && $passed*100 <= $total*50,
+            3=>$passed*100 > $total*50 && $passed*100 < $total*75,
+            4=>$passed*100 >= $total*75 || $lowerYearsCleared,
         },
     ];
 }
@@ -131,7 +149,8 @@ function refresh_student_standing(PDO $pdo, string $studentId, string $actor): a
             $oldSection = (string)($student['year_section'] ?? '');
             $section = preg_replace('/(?<!\d)'.$year.'(?=[- ]?[A-Z]$)/i',(string)$target,$oldSection);
             $pdo->prepare('UPDATE users SET year_level=?,year_section=? WHERE id=? AND year_level=?')->execute([$target,$section,$studentId,$year]);
-            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' whole-curriculum units passed ('.[1=>'below 25%',2=>'25% through 51%',3=>'above 51% and below 75%',4=>'at least 75%'][$target].').';
+            $standingRule = [1=>'below 25%',2=>'25% through 50%',3=>'above 50% and below 75%',4=>'at least 75% or all lower-year subjects cleared'][$target];
+            $notes = 'Automatic standing: '.$rule['passedUnits'].' / '.$rule['totalUnits'].' whole-curriculum units passed ('.$standingRule.').';
             $pdo->prepare('INSERT INTO student_movements
                 (student_id,movement_type,from_program,to_program,from_year_level,to_year_level,from_section,to_section,notes,performed_by,moved_at)
                 VALUES (?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)')->execute([
