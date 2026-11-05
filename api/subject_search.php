@@ -27,7 +27,7 @@ $student = $studentStmt->fetch();
 if (!$student) error_response('Student account not found.', 404);
 
 $like = '%' . $q . '%';
-$stmt = $pdo->prepare('SELECT s.*, c.program_name FROM subjects s LEFT JOIN curricula c ON c.program_code=s.program_code WHERE s.term_code=? AND s.semester=? AND (s.sub_code LIKE ? OR s.description LIKE ?) ORDER BY s.program_code, s.year_level, s.sub_code, s.section, s.subject_id LIMIT 50');
+$stmt = $pdo->prepare('SELECT s.*, c.program_name FROM subjects s LEFT JOIN curricula c ON c.program_code=s.program_code WHERE s.term_code=? AND s.semester=? AND (LOWER(s.sub_code) LIKE LOWER(?) OR LOWER(s.description) LIKE LOWER(?)) ORDER BY s.program_code, s.year_level, s.sub_code, s.section, s.subject_id LIMIT 50');
 $stmt->execute([$term['term_code'], $semester, $like, $like]);
 $rows = $stmt->fetchAll();
 
