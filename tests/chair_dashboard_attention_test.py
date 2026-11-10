@@ -40,15 +40,17 @@ CREATE TABLE users(id VARCHAR(20) PRIMARY KEY,role VARCHAR(20),first_name VARCHA
 INSERT INTO users VALUES
 ('LOCAL-1','student','First','Student','one@example.test','BSCpE',3,'BSCpE 3A','irregular'),
 ('LOCAL-2','student','Second','Student','two@example.test','BSCpE',3,'BSCpE 3A','irregular'),
+('LOCAL-DUPONLY','student','Duplicate','Code','dup@example.test','BSCpE',3,'BSCpE 3A','irregular'),
 ('LOCAL-OTHER','student','Other','Program','other@example.test','BSIT',3,'BSIT 3A','regular');
 CREATE TABLE subjects(subject_id BIGINT PRIMARY KEY,program_code VARCHAR(20),sub_code VARCHAR(20),description VARCHAR(100));
-INSERT INTO subjects VALUES(1,'BSCpE','PRE','Prerequisite'),(2,'BSCpE','ADV','Advanced Course'),(3,'BSIT','PRE','Prerequisite'),(4,'BSIT','ADV','Advanced Course');
+INSERT INTO subjects VALUES(1,'BSCpE','PRE','Prerequisite'),(2,'BSCpE','ADV','Advanced Course'),(3,'BSIT','PRE','Prerequisite'),(4,'BSIT','ADV','Advanced Course'),(5,'BSCpE','DUP','Canonical no-prerequisite course'),(6,'BSCpE','DUP','Alternate course with prerequisite');
 CREATE TABLE subject_prerequisites(subject_id BIGINT,prereq_subject_id BIGINT);
-INSERT INTO subject_prerequisites VALUES(2,1),(4,3);
+INSERT INTO subject_prerequisites VALUES(2,1),(4,3),(6,1);
 CREATE TABLE academic_records(id BIGINT PRIMARY KEY AUTO_INCREMENT,student_id VARCHAR(20),sub_code VARCHAR(20),school_year_taken VARCHAR(30),term_code VARCHAR(20),grade VARCHAR(20),passed INT);
 INSERT INTO academic_records(student_id,sub_code,school_year_taken,term_code,grade,passed) VALUES
 ('LOCAL-1','ADV','2026–2027','26-1','2.00',1),
 ('LOCAL-2','ADV','2026–2027','26-1','2.00',1),
+('LOCAL-DUPONLY','DUP','2026–2027','26-1','2.00',1),
 ('LOCAL-OTHER','ADV','2026–2027','26-1','2.00',1);
 ''')
 
@@ -95,6 +97,7 @@ function error_response(string $message,int $status=400):void { respond(['error'
         initial = dashboard()
         assert initial['studentsWithViolations'] == 2, initial
         assert {row['studentId'] for row in initial['violations']} == {'LOCAL-1', 'LOCAL-2'}
+        assert all(row['studentId'] != 'LOCAL-DUPONLY' for row in initial['violations']), initial
 
         sql("INSERT INTO chair_dashboard_attention_test.academic_records(student_id,sub_code,school_year_taken,term_code,grade,passed) VALUES('LOCAL-1','PRE','2027–2028','27-1','2.00',1)")
         after_first_pass = dashboard()
