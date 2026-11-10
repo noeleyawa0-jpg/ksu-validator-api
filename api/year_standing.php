@@ -28,13 +28,15 @@ function standing_requirements(PDO $pdo, string $program): array {
         elseif (preg_match('/^NSTP(?:2|12)(?:-[AB])?$/', $group)) $group = 'NSTP-TRACK-2';
         else $group = $code;
         $key = "$year|$semester|$group";
-        if (!isset($requirements[$key])) $requirements[$key] = ['year'=>$year,'semester'=>$semester,'creditKey'=>$group,'unitsTenths'=>0,'unitValues'=>[],'valid'=>true,'codes'=>[]];
+        if (!isset($requirements[$key])) $requirements[$key] = ['year'=>$year,'semester'=>$semester,'termCode'=>(string)$row['term_code'],'creditKey'=>$group,'unitsTenths'=>0,'unitValues'=>[],'valid'=>true,'codes'=>[],'descriptions'=>[]];
         $units = (int)round((float)$row['units']*10);
         $requirements[$key]['unitValues'][$units] = true;
         if ($units<0 || count($requirements[$key]['unitValues'])>1) $requirements[$key]['valid'] = false;
         $requirements[$key]['unitsTenths'] = max($requirements[$key]['unitsTenths'],$units);
         $requirements[$key]['codes'][$code] = true;
         $requirements[$key]['codes'][standing_code($row['sub_code'])] = true;
+        $description = strtolower(preg_replace('/\s+/', ' ', trim((string)$row['description'])));
+        if ($description !== '') $requirements[$key]['descriptions'][$description] = true;
     }
     ksort($requirements);
     return array_values($requirements);
