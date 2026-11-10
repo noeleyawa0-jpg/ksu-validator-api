@@ -29,9 +29,9 @@ foreach ($students as $student) {
     else $notDetermined++;
 }
 
-// Flag historical subjects for which a required prerequisite has no passing
-// record from an earlier term. Term codes are used when present; record ID is
-// the fallback for older records without a term code.
+// Keep a student on the attention list only while a required prerequisite has
+// no passing grade on record. If the student later passes the prerequisite,
+// the issue is resolved and the dashboard warning clears on refresh.
 $violationSql = '
     SELECT u.id AS student_id, u.first_name, u.last_name, u.program, u.year_level, u.year_section,
            COUNT(DISTINCT CONCAT(ar.id, ":", s.subject_id)) AS violation_count,
@@ -44,8 +44,6 @@ $violationSql = '
     WHERE NOT EXISTS (
         SELECT 1 FROM academic_records pr
         WHERE pr.student_id=ar.student_id AND pr.sub_code=p.sub_code AND pr.passed=1
-          AND ((ar.term_code IS NOT NULL AND pr.term_code IS NOT NULL AND pr.term_code < ar.term_code)
-               OR ((ar.term_code IS NULL OR pr.term_code IS NULL) AND pr.id < ar.id))
     )
     GROUP BY u.id, u.first_name, u.last_name, u.program, u.year_level, u.year_section
     ORDER BY violation_count DESC, u.last_name, u.first_name';
